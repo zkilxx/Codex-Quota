@@ -15,7 +15,7 @@ A lightweight macOS menu bar utility that shows your remaining Codex quota and t
 ## Features
 
 - Persistent menu bar status, such as `Codex 74% · 6d`
-- Fetches quota data at launch and refreshes automatically every 60 seconds
+- Fetches quota data at launch and refreshes automatically every 60 seconds, with live token increments from local session logs
 - Shows daily, monthly, and yearly cumulative token usage, with optional menu bar display
 - Lets you independently toggle today's tokens, quota windows, and reset countdown to control menu bar length
 - Supports default status labels and persistent custom labels
@@ -54,7 +54,7 @@ Optional launch modes:
 
 ## Data Source and Privacy
 
-Codex Quota calls the local `codex app-server --stdio` process and reads the `account/rateLimits/read` response. Authentication remains managed by the local Codex installation. The app only reads quota snapshots and does not read, store, or transmit account credentials.
+Codex Quota reads account usage and quota through the local `codex app-server --stdio` process. It also reads Token count events from `~/.codex/sessions` in read-only mode to compensate for delayed server-side daily aggregates. Authentication remains managed by the local Codex installation; the app never reads, stores, or transmits account credentials, and it does not upload session content.
 
 ## License
 

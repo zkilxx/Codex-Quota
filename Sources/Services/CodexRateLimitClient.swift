@@ -15,6 +15,8 @@ enum CodexRateLimitError: LocalizedError {
 }
 
 actor CodexRateLimitClient {
+    private let localUsageReader = LocalTokenUsageReader()
+
     func fetch() async throws -> CodexAccountSnapshot {
         let process = Process()
         let input = Pipe()
@@ -49,12 +51,42 @@ actor CodexRateLimitClient {
         guard let usageResult = usageResponse["result"] else { throw CodexRateLimitError.invalidResponse }
         let usageData = try JSONSerialization.data(withJSONObject: usageResult)
         let usage = try JSONDecoder().decode(AccountTokenUsageResponse.self, from: usageData)
+        let localTodayTokens = await localUsageReader.todayTokens()
+        let totals = reconcile(usage: usage, localTodayTokens: localTodayTokens)
         return CodexAccountSnapshot(
             rateLimits: rateLimits,
-            todayTokens: usage.todayTokens,
-            monthTokens: usage.monthTokens,
-            yearTokens: usage.yearTokens
+            todayTokens: totals.today,
+            monthTokens: totals.month,
+            yearTokens: totals.year
         )
+    }
+
+    private func reconcile(usage: AccountTokenUsageResponse, localTodayTokens: Int64) -> (today: Int64, month: Int64, year: Int64) {
+        let defaults = UserDefaults.standard
+        let day = Self.dayKey
+        if defaults.string(forKey: "liveTokenBaselineDay") != day {
+            defaults.set(day, forKey: "liveTokenBaselineDay")
+            defaults.set(usage.todayTokens, forKey: "liveTokenServerToday")
+            defaults.set(usage.monthTokens, forKey: "liveTokenServerMonth")
+            defaults.set(usage.yearTokens, forKey: "liveTokenServerYear")
+            defaults.set(localTodayTokens, forKey: "liveTokenLocalToday")
+        }
+
+        let localBaseline = Int64(defaults.integer(forKey: "liveTokenLocalToday"))
+        let localDelta = max(0, localTodayTokens - localBaseline)
+        let today = max(usage.todayTokens, Int64(defaults.integer(forKey: "liveTokenServerToday")) + localDelta)
+        let month = max(usage.monthTokens, Int64(defaults.integer(forKey: "liveTokenServerMonth")) + localDelta)
+        let year = max(usage.yearTokens, Int64(defaults.integer(forKey: "liveTokenServerYear")) + localDelta)
+        return (today, month, year)
+    }
+
+    private static var dayKey: String {
+        let formatter = DateFormatter()
+        formatter.calendar = .current
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: .now)
     }
 
     private func codexExecutable() throws -> String {
