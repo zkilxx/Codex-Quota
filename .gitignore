@@ -1,0 +1,10 @@
+.DS_Store
+.build/
+.codex/
+dist/
+outputs/
+work/
+assets/codex-quota-hero.png
+assets/codex-quota-statusbar.png
+assets/codex-quota-statusbar-v2.png
+assets/codex-quota-statusbar-v3.png
