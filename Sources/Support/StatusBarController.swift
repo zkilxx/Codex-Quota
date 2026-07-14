@@ -53,6 +53,13 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         if preference("showTodayTokens"), let tokens = store.todayTokens {
             parts.insert("今日 \(compactTokens(tokens))", at: 0)
         }
+        if preference("showMonthTokens", defaultValue: false), let tokens = store.monthTokens {
+            parts.insert("本月 \(compactTokens(tokens))", at: preference("showTodayTokens") ? 1 : 0)
+        }
+        if preference("showYearTokens", defaultValue: false), let tokens = store.yearTokens {
+            let tokenCount = parts.prefix { $0.hasPrefix("今日") || $0.hasPrefix("本月") }.count
+            parts.insert("本年 \(compactTokens(tokens))", at: tokenCount)
+        }
         return parts.isEmpty ? "Codex --" : "Codex " + parts.joined(separator: " · ")
     }
 
@@ -71,6 +78,8 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         tokenItem.target = self
         tokenItem.representedObject = "showTodayTokens"
         tokenItem.state = preference("showTodayTokens") ? .on : .off
+        addTokenItem(title: "本月累计 Token", tokens: store.monthTokens, key: "showMonthTokens", defaultValue: false, to: menu)
+        addTokenItem(title: "本年累计 Token", tokens: store.yearTokens, key: "showYearTokens", defaultValue: false, to: menu)
         menu.addItem(.separator())
         for option in quotaOptions { addQuotaOption(option, snapshot: store.snapshot, to: menu) }
         let countdown = menu.addItem(withTitle: "显示刷新倒计时", action: #selector(togglePreference(_:)), keyEquivalent: "")
@@ -103,6 +112,14 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         item.state = isVisible(option) ? .on : .off
     }
 
+    private func addTokenItem(title: String, tokens: Int64?, key: String, defaultValue: Bool, to menu: NSMenu) {
+        let detail = tokens.map(formattedTokens) ?? "正在读取…"
+        let item = menu.addItem(withTitle: "\(title)：\(detail)", action: #selector(togglePreference(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = key
+        item.state = preference(key, defaultValue: defaultValue) ? .on : .off
+    }
+
     private func durationLabel(_ minutes: Int64) -> String {
         switch minutes {
         case 10_080: "1周额度"
@@ -119,8 +136,8 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         preference(option.preferenceKey)
     }
 
-    private func preference(_ key: String) -> Bool {
-        UserDefaults.standard.object(forKey: key) as? Bool ?? true
+    private func preference(_ key: String, defaultValue: Bool = true) -> Bool {
+        UserDefaults.standard.object(forKey: key) as? Bool ?? defaultValue
     }
 
     private func relativeTime(to date: Date) -> String {
@@ -146,7 +163,8 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
     @objc private func openUsage() { NSWorkspace.shared.open(URL(string: "https://chatgpt.com/codex/settings/usage")!) }
     @objc private func togglePreference(_ sender: NSMenuItem) {
         guard let key = sender.representedObject as? String else { return }
-        UserDefaults.standard.set(!preference(key), forKey: key)
+        let defaultValue = key == "showMonthTokens" || key == "showYearTokens" ? false : true
+        UserDefaults.standard.set(!preference(key, defaultValue: defaultValue), forKey: key)
         render()
     }
     @objc private func quit() { NSApp.terminate(nil) }

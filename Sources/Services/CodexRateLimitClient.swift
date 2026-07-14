@@ -49,7 +49,12 @@ actor CodexRateLimitClient {
         guard let usageResult = usageResponse["result"] else { throw CodexRateLimitError.invalidResponse }
         let usageData = try JSONSerialization.data(withJSONObject: usageResult)
         let usage = try JSONDecoder().decode(AccountTokenUsageResponse.self, from: usageData)
-        return CodexAccountSnapshot(rateLimits: rateLimits, todayTokens: usage.todayTokens)
+        return CodexAccountSnapshot(
+            rateLimits: rateLimits,
+            todayTokens: usage.todayTokens,
+            monthTokens: usage.monthTokens,
+            yearTokens: usage.yearTokens
+        )
     }
 
     private func codexExecutable() throws -> String {

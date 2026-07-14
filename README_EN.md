@@ -16,7 +16,7 @@ A lightweight macOS menu bar utility that shows your remaining Codex quota and t
 
 - Persistent menu bar status, such as `Codex 74% · 6d`
 - Fetches quota data at launch and refreshes automatically every 60 seconds
-- Shows today's cumulative token usage in the menu bar and app menu
+- Shows daily, monthly, and yearly cumulative token usage, with optional menu bar display
 - Lets you independently toggle today's tokens, quota windows, and reset countdown to control menu bar length
 - Shows the exact reset time for each available quota window
 - Lets you toggle 5-hour, 1-week, and 1-month quota windows directly from the app menu
