@@ -53,7 +53,7 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         if preference("showTodayTokens"), let tokens = store.todayTokens {
             parts.insert("今日 \(compactTokens(tokens))", at: 0)
         }
-        return parts.isEmpty ? "Codex --" : "Codex " + parts.joined(separator: "  ")
+        return parts.isEmpty ? "Codex --" : "Codex " + parts.joined(separator: " · ")
     }
 
     private var tooltip: String {
