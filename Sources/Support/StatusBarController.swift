@@ -55,9 +55,17 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
 
     private func addWindow(_ window: RateLimitWindow?, fallback: String, to menu: NSMenu) {
         guard let window else { return }
-        let duration = window.windowDurationMins.map { "\($0) 分钟额度" } ?? fallback
+        let duration = window.windowDurationMins.map(durationLabel) ?? fallback
         let reset = window.resetDate.map { "，刷新 \($0.formatted(date: .abbreviated, time: .shortened))" } ?? ""
         menu.addItem(withTitle: "\(duration)：剩余 \(window.remainingPercent)%\(reset)", action: nil, keyEquivalent: "")
+    }
+
+    private func durationLabel(_ minutes: Int64) -> String {
+        switch minutes {
+        case 10_080: "1周额度"
+        case 1_440: "1天额度"
+        default: "\(minutes) 分钟额度"
+        }
     }
 
     private func relativeTime(to date: Date) -> String {

@@ -8,6 +8,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_MACOS="$APP_BUNDLE/Contents/MacOS"
+APP_RESOURCES="$APP_BUNDLE/Contents/Resources"
+ICON_SOURCE="$ROOT_DIR/icons/CodexQuota.icns"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 swift build
@@ -16,6 +18,8 @@ BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
 mkdir -p "$APP_MACOS"
 cp "$BUILD_BINARY" "$APP_MACOS/$APP_NAME"
 chmod +x "$APP_MACOS/$APP_NAME"
+mkdir -p "$APP_RESOURCES"
+cp "$ICON_SOURCE" "$APP_RESOURCES/CodexQuota.icns"
 
 cat >"$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -25,7 +29,10 @@ cat >"$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
 <key>CFBundleName</key><string>$APP_NAME</string>
 <key>CFBundleDisplayName</key><string>Codex Quota</string>
+<key>CFBundleIconFile</key><string>CodexQuota.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>1.0.0</string>
+<key>CFBundleVersion</key><string>1</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSUIElement</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>

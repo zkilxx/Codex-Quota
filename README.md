@@ -1,5 +1,7 @@
 # Codex Quota
 
+<img src="assets/codex-quota-icon.png" alt="Codex Quota icon" width="128" />
+
 ![Codex Quota status bar screenshot](assets/codex-quota-statusbar-screenshot.png)
 
 一个常驻在 macOS 状态栏的轻量工具，直接显示 Codex 剩余额度与距离下次刷新时间。
