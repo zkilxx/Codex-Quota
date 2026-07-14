@@ -25,6 +25,11 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
             Task { @MainActor in self?.render() }
         }
         render()
+        if CommandLine.arguments.contains("--screenshot-menu") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                self?.statusItem.button?.performClick(nil)
+            }
+        }
     }
 
     private func render() {
