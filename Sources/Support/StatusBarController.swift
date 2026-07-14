@@ -45,6 +45,11 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
                 self?.statusItem.button?.performClick(nil)
             }
         }
+        if CommandLine.arguments.contains("--edit-labels") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                self?.presentCustomLabelsEditor()
+            }
+        }
     }
 
     private func render() {
@@ -218,27 +223,40 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         render()
     }
     @objc private func editCustomLabels() {
+        DispatchQueue.main.async { [weak self] in
+            self?.presentCustomLabelsEditor()
+        }
+    }
+
+    private func presentCustomLabelsEditor() {
         let alert = NSAlert()
         alert.messageText = "自定义状态栏文字"
         alert.informativeText = "留空将使用默认文字。"
         alert.addButton(withTitle: "保存")
         alert.addButton(withTitle: "取消")
 
-        let grid = NSGridView()
-        grid.rowSpacing = 7
-        grid.columnSpacing = 10
+        let rowHeight: CGFloat = 30
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 330, height: rowHeight * CGFloat(labelDefinitions.count)))
         var fields: [NSTextField] = []
-        for definition in labelDefinitions {
+        for (index, definition) in labelDefinitions.enumerated() {
+            let y = container.bounds.height - CGFloat(index + 1) * rowHeight + 4
             let title = NSTextField(labelWithString: definition.title)
             title.alignment = .right
+            title.frame = NSRect(x: 0, y: y, width: 90, height: 22)
             let field = NSTextField(string: UserDefaults.standard.string(forKey: definition.key) ?? definition.defaultValue)
             field.placeholderString = definition.defaultValue
-            field.widthAnchor.constraint(equalToConstant: 170).isActive = true
-            grid.addRow(with: [title, field])
+            field.frame = NSRect(x: 102, y: y - 1, width: 220, height: 24)
+            container.addSubview(title)
+            container.addSubview(field)
             fields.append(field)
         }
-        alert.accessoryView = grid
+        alert.accessoryView = container
         NSApp.activate(ignoringOtherApps: true)
+        alert.window.level = .floating
+        alert.window.makeKeyAndOrderFront(nil)
+        if let firstField = fields.first {
+            alert.window.makeFirstResponder(firstField)
+        }
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         for (definition, field) in zip(labelDefinitions, fields) {
             UserDefaults.standard.set(field.stringValue, forKey: definition.key)
