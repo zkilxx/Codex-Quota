@@ -82,7 +82,9 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
             return labeledValue(title, "\(window.remainingPercent)%")
         }
         let appLabel = displayLabel(key: "customAppLabel", defaultValue: "Codex")
-        return parts.isEmpty ? labeledValue(appLabel, "--") : ([appLabel] + parts).filter { !$0.isEmpty }.joined(separator: " · ")
+        guard !parts.isEmpty else { return labeledValue(appLabel, "--") }
+        let metrics = parts.joined(separator: " · ")
+        return appLabel.isEmpty ? metrics : "\(appLabel) ｜ \(metrics)"
     }
 
     private var tooltip: String {
