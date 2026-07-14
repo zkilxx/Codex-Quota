@@ -44,10 +44,13 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         }
         var parts = quotaOptions.compactMap { option -> String? in
             guard isVisible(option), let window = window(for: option, in: snapshot) else { return nil }
-            let reset = window.resetDate.map(relativeTime) ?? "--"
-            return "\(option.shortTitle) \(window.remainingPercent)% · \(reset)"
+            if preference("showResetCountdown") {
+                let reset = window.resetDate.map(relativeTime) ?? "--"
+                return "\(option.shortTitle) \(window.remainingPercent)% · \(reset)"
+            }
+            return "\(option.shortTitle) \(window.remainingPercent)%"
         }
-        if let tokens = store.todayTokens {
+        if preference("showTodayTokens"), let tokens = store.todayTokens {
             parts.insert("今日 \(compactTokens(tokens))", at: 0)
         }
         return parts.isEmpty ? "Codex --" : "Codex " + parts.joined(separator: "  ")
@@ -64,9 +67,16 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
             menu.addItem(withTitle: error, action: nil, keyEquivalent: "")
         }
         let tokenTitle = store.todayTokens.map { "今日累计 Token：\(formattedTokens($0))" } ?? "今日累计 Token：正在读取…"
-        menu.addItem(withTitle: tokenTitle, action: nil, keyEquivalent: "")
+        let tokenItem = menu.addItem(withTitle: tokenTitle, action: #selector(togglePreference(_:)), keyEquivalent: "")
+        tokenItem.target = self
+        tokenItem.representedObject = "showTodayTokens"
+        tokenItem.state = preference("showTodayTokens") ? .on : .off
         menu.addItem(.separator())
         for option in quotaOptions { addQuotaOption(option, snapshot: store.snapshot, to: menu) }
+        let countdown = menu.addItem(withTitle: "显示刷新倒计时", action: #selector(togglePreference(_:)), keyEquivalent: "")
+        countdown.target = self
+        countdown.representedObject = "showResetCountdown"
+        countdown.state = preference("showResetCountdown") ? .on : .off
         menu.addItem(.separator())
         let refresh = menu.addItem(withTitle: store.isRefreshing ? "正在刷新…" : "立即刷新", action: #selector(refresh), keyEquivalent: "r")
         refresh.target = self
@@ -87,7 +97,7 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         } else {
             detail = store.isRefreshing ? "正在读取…" : "暂无数据"
         }
-        let item = menu.addItem(withTitle: "\(option.title)：\(detail)", action: #selector(toggleQuota(_:)), keyEquivalent: "")
+        let item = menu.addItem(withTitle: "\(option.title)：\(detail)", action: #selector(togglePreference(_:)), keyEquivalent: "")
         item.target = self
         item.representedObject = option.preferenceKey
         item.state = isVisible(option) ? .on : .off
@@ -106,7 +116,11 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
     }
 
     private func isVisible(_ option: QuotaOption) -> Bool {
-        UserDefaults.standard.object(forKey: option.preferenceKey) as? Bool ?? true
+        preference(option.preferenceKey)
+    }
+
+    private func preference(_ key: String) -> Bool {
+        UserDefaults.standard.object(forKey: key) as? Bool ?? true
     }
 
     private func relativeTime(to date: Date) -> String {
@@ -130,9 +144,9 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
 
     @objc private func refresh() { store.refresh() }
     @objc private func openUsage() { NSWorkspace.shared.open(URL(string: "https://chatgpt.com/codex/settings/usage")!) }
-    @objc private func toggleQuota(_ sender: NSMenuItem) {
+    @objc private func togglePreference(_ sender: NSMenuItem) {
         guard let key = sender.representedObject as? String else { return }
-        UserDefaults.standard.set(!(UserDefaults.standard.object(forKey: key) as? Bool ?? true), forKey: key)
+        UserDefaults.standard.set(!preference(key), forKey: key)
         render()
     }
     @objc private func quit() { NSApp.terminate(nil) }
