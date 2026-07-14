@@ -24,10 +24,6 @@ A lightweight macOS menu bar utility that shows your remaining Codex quota and t
 - Supports manual refresh and quick access to Codex usage settings
 - Reads the signed-in account through the local Codex app server without storing or uploading authentication tokens
 
-## Screenshot
-
-The screenshot above shows the app running with its complete menu open. The status text is rendered with the native macOS `NSStatusItem` API, so the remaining quota and reset countdown stay visible without opening the menu.
-
 ## Requirements
 
 - macOS 14 or later
