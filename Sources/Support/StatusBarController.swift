@@ -9,6 +9,9 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem.button?.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         store.onUpdate = { [weak self] in self?.render() }
+        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.render() }
+        }
         render()
     }
 
@@ -19,11 +22,14 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
     }
 
     private var statusTitle: String {
-        guard let window = store.snapshot?.primary else {
+        guard let snapshot = store.snapshot else {
             return store.isRefreshing ? "Codex 更新中…" : "Codex --"
         }
-        let reset = window.resetDate.map(relativeTime) ?? "--"
-        return "Codex \(window.remainingPercent)% · \(reset)"
+        let parts = visibleWindows(in: snapshot).compactMap { window -> String? in
+            let reset = window.resetDate.map(relativeTime) ?? "--"
+            return "\(window.remainingPercent)% · \(reset)"
+        }
+        return parts.isEmpty ? "Codex --" : "Codex " + parts.joined(separator: "  ")
     }
 
     private var tooltip: String {
@@ -34,8 +40,7 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
         if let snapshot = store.snapshot {
-            addWindow(snapshot.primary, fallback: "主要额度", to: menu)
-            addWindow(snapshot.secondary, fallback: "次要额度", to: menu)
+            for window in visibleWindows(in: snapshot) { addWindow(window, fallback: "额度", to: menu) }
         } else if let error = store.errorMessage {
             menu.addItem(withTitle: error, action: nil, keyEquivalent: "")
         } else {
@@ -47,6 +52,8 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         refresh.isEnabled = !store.isRefreshing
         let usage = menu.addItem(withTitle: "打开 Codex 用量设置", action: #selector(openUsage), keyEquivalent: "")
         usage.target = self
+        let settings = menu.addItem(withTitle: "设置…", action: #selector(openSettings), keyEquivalent: ",")
+        settings.target = self
         menu.addItem(.separator())
         let quit = menu.addItem(withTitle: "退出 Codex Quota", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
@@ -68,6 +75,17 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func visibleWindows(in snapshot: RateLimitSnapshot) -> [RateLimitWindow] {
+        [snapshot.primary, snapshot.secondary].compactMap { $0 }.filter { window in
+            switch window.windowDurationMins {
+            case 300: UserDefaults.standard.bool(forKey: "showFiveHourQuota")
+            case 10_080: UserDefaults.standard.object(forKey: "showWeeklyQuota") as? Bool ?? true
+            case 43_200: UserDefaults.standard.bool(forKey: "showMonthlyQuota")
+            default: true
+            }
+        }
+    }
+
     private func relativeTime(to date: Date) -> String {
         let interval = max(0, Int(date.timeIntervalSinceNow))
         if interval >= 86_400 { return "\(interval / 86_400)天" }
@@ -77,5 +95,6 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
 
     @objc private func refresh() { store.refresh() }
     @objc private func openUsage() { NSWorkspace.shared.open(URL(string: "https://chatgpt.com/codex/settings/usage")!) }
+    @objc private func openSettings() { NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) }
     @objc private func quit() { NSApp.terminate(nil) }
 }

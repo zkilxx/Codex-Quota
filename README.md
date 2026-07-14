@@ -11,6 +11,7 @@
 - 状态栏常驻显示：`Codex 74% · 6天`
 - 启动时读取额度，并每 60 秒自动刷新
 - 菜单中展示每个限额窗口的精确刷新时间
+- 设置中可选择 5 小时、1 周、1 月额度是否显示在状态栏
 - 支持手动刷新，以及一键打开 Codex 用量设置
 - 通过本机 Codex app-server 读取已登录账号的数据；不会保存或上传令牌
 
@@ -24,13 +25,13 @@
 - 已安装并登录 Codex 桌面版（或本机可执行 `codex`）
 - Swift 6 工具链
 
-## 运行
+## 安装
 
-```bash
-./script/build_and_run.sh
-```
+1. 从 [GitHub Releases](https://github.com/zkilxx/Codex-Quota/releases) 下载最新的 `Codex-Quota-*.dmg`。
+2. 打开 DMG，将 **Codex Quota** 拖入“应用程序”文件夹。
+3. 在“应用程序”中启动 Codex Quota；右上角状态栏会显示额度与刷新时间。
 
-脚本会构建一个本地 `.app` 包并启动它。启动后，右上角状态栏会出现额度与刷新时间。
+若 macOS 首次阻止打开，请在“系统设置 → 隐私与安全性”中确认打开。
 
 ## 开发
 
