@@ -42,10 +42,13 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         guard let snapshot = store.snapshot else {
             return store.isRefreshing ? "Codex 更新中…" : "Codex --"
         }
-        let parts = quotaOptions.compactMap { option -> String? in
+        var parts = quotaOptions.compactMap { option -> String? in
             guard isVisible(option), let window = window(for: option, in: snapshot) else { return nil }
             let reset = window.resetDate.map(relativeTime) ?? "--"
             return "\(option.shortTitle) \(window.remainingPercent)% · \(reset)"
+        }
+        if let tokens = store.todayTokens {
+            parts.insert("今日 \(compactTokens(tokens))", at: 0)
         }
         return parts.isEmpty ? "Codex --" : "Codex " + parts.joined(separator: "  ")
     }
@@ -60,6 +63,9 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         if let error = store.errorMessage, store.snapshot == nil {
             menu.addItem(withTitle: error, action: nil, keyEquivalent: "")
         }
+        let tokenTitle = store.todayTokens.map { "今日累计 Token：\(formattedTokens($0))" } ?? "今日累计 Token：正在读取…"
+        menu.addItem(withTitle: tokenTitle, action: nil, keyEquivalent: "")
+        menu.addItem(.separator())
         for option in quotaOptions { addQuotaOption(option, snapshot: store.snapshot, to: menu) }
         menu.addItem(.separator())
         let refresh = menu.addItem(withTitle: store.isRefreshing ? "正在刷新…" : "立即刷新", action: #selector(refresh), keyEquivalent: "r")
@@ -108,6 +114,18 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         if interval >= 86_400 { return "\(interval / 86_400)天" }
         if interval >= 3_600 { return "\(interval / 3_600)时" }
         return "\(max(1, interval / 60))分"
+    }
+
+    private func compactTokens(_ tokens: Int64) -> String {
+        if tokens >= 1_000_000 { return String(format: "%.1fM", Double(tokens) / 1_000_000) }
+        if tokens >= 1_000 { return String(format: "%.1fK", Double(tokens) / 1_000) }
+        return "\(tokens)"
+    }
+
+    private func formattedTokens(_ tokens: Int64) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter.string(from: NSNumber(value: tokens)) ?? "\(tokens)"
     }
 
     @objc private func refresh() { store.refresh() }

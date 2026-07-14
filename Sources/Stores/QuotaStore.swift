@@ -8,6 +8,7 @@ final class QuotaStore {
     private var timer: Timer?
 
     var snapshot: RateLimitSnapshot?
+    var todayTokens: Int64?
     var lastUpdated: Date?
     var errorMessage: String?
     var isRefreshing = false
@@ -30,8 +31,9 @@ final class QuotaStore {
         onUpdate?()
         Task {
             do {
-                let snapshot = try await client.fetch()
-                self.snapshot = snapshot
+                let account = try await client.fetch()
+                self.snapshot = account.rateLimits
+                self.todayTokens = account.todayTokens
                 self.lastUpdated = .now
                 self.errorMessage = nil
             } catch {

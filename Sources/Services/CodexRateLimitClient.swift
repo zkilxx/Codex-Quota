@@ -15,7 +15,7 @@ enum CodexRateLimitError: LocalizedError {
 }
 
 actor CodexRateLimitClient {
-    func fetch() async throws -> RateLimitSnapshot {
+    func fetch() async throws -> CodexAccountSnapshot {
         let process = Process()
         let input = Pipe()
         let output = Pipe()
@@ -42,7 +42,14 @@ actor CodexRateLimitClient {
         let response = try readResponse(id: 2, from: output.fileHandleForReading)
         guard let result = response["result"] else { throw CodexRateLimitError.invalidResponse }
         let data = try JSONSerialization.data(withJSONObject: result)
-        return try JSONDecoder().decode(RateLimitResponse.self, from: data).preferredSnapshot
+        let rateLimits = try JSONDecoder().decode(RateLimitResponse.self, from: data).preferredSnapshot
+
+        try send(["id": 3, "method": "account/usage/read", "params": NSNull()], to: input.fileHandleForWriting)
+        let usageResponse = try readResponse(id: 3, from: output.fileHandleForReading)
+        guard let usageResult = usageResponse["result"] else { throw CodexRateLimitError.invalidResponse }
+        let usageData = try JSONSerialization.data(withJSONObject: usageResult)
+        let usage = try JSONDecoder().decode(AccountTokenUsageResponse.self, from: usageData)
+        return CodexAccountSnapshot(rateLimits: rateLimits, todayTokens: usage.todayTokens)
     }
 
     private func codexExecutable() throws -> String {
