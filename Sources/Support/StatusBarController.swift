@@ -3,6 +3,18 @@ import Foundation
 
 @MainActor
 final class StatusBarController: NSObject, NSApplicationDelegate {
+    private struct QuotaOption {
+        let title: String
+        let shortTitle: String
+        let minutes: Int64
+        let preferenceKey: String
+    }
+
+    private let quotaOptions = [
+        QuotaOption(title: "5小时额度", shortTitle: "5时", minutes: 300, preferenceKey: "showFiveHourQuota"),
+        QuotaOption(title: "1周额度", shortTitle: "1周", minutes: 10_080, preferenceKey: "showWeeklyQuota"),
+        QuotaOption(title: "1月额度", shortTitle: "1月", minutes: 43_200, preferenceKey: "showMonthlyQuota")
+    ]
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let store = QuotaStore()
 
@@ -25,9 +37,10 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         guard let snapshot = store.snapshot else {
             return store.isRefreshing ? "Codex 更新中…" : "Codex --"
         }
-        let parts = visibleWindows(in: snapshot).compactMap { window -> String? in
+        let parts = quotaOptions.compactMap { option -> String? in
+            guard isVisible(option), let window = window(for: option, in: snapshot) else { return nil }
             let reset = window.resetDate.map(relativeTime) ?? "--"
-            return "\(window.remainingPercent)% · \(reset)"
+            return "\(option.shortTitle) \(window.remainingPercent)% · \(reset)"
         }
         return parts.isEmpty ? "Codex --" : "Codex " + parts.joined(separator: "  ")
     }
@@ -39,32 +52,34 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
 
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
-        if let snapshot = store.snapshot {
-            for window in visibleWindows(in: snapshot) { addWindow(window, fallback: "额度", to: menu) }
-        } else if let error = store.errorMessage {
+        if let error = store.errorMessage, store.snapshot == nil {
             menu.addItem(withTitle: error, action: nil, keyEquivalent: "")
-        } else {
-            menu.addItem(withTitle: "正在读取 Codex 限额…", action: nil, keyEquivalent: "")
         }
+        for option in quotaOptions { addQuotaOption(option, snapshot: store.snapshot, to: menu) }
         menu.addItem(.separator())
         let refresh = menu.addItem(withTitle: store.isRefreshing ? "正在刷新…" : "立即刷新", action: #selector(refresh), keyEquivalent: "r")
         refresh.target = self
         refresh.isEnabled = !store.isRefreshing
         let usage = menu.addItem(withTitle: "打开 Codex 用量设置", action: #selector(openUsage), keyEquivalent: "")
         usage.target = self
-        let settings = menu.addItem(withTitle: "设置…", action: #selector(openSettings), keyEquivalent: ",")
-        settings.target = self
         menu.addItem(.separator())
         let quit = menu.addItem(withTitle: "退出 Codex Quota", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         return menu
     }
 
-    private func addWindow(_ window: RateLimitWindow?, fallback: String, to menu: NSMenu) {
-        guard let window else { return }
-        let duration = window.windowDurationMins.map(durationLabel) ?? fallback
-        let reset = window.resetDate.map { "，刷新 \($0.formatted(date: .abbreviated, time: .shortened))" } ?? ""
-        menu.addItem(withTitle: "\(duration)：剩余 \(window.remainingPercent)%\(reset)", action: nil, keyEquivalent: "")
+    private func addQuotaOption(_ option: QuotaOption, snapshot: RateLimitSnapshot?, to menu: NSMenu) {
+        let detail: String
+        if let snapshot, let window = window(for: option, in: snapshot) {
+            let reset = window.resetDate.map { "，刷新 \($0.formatted(date: .abbreviated, time: .shortened))" } ?? ""
+            detail = "剩余 \(window.remainingPercent)%\(reset)"
+        } else {
+            detail = store.isRefreshing ? "正在读取…" : "暂无数据"
+        }
+        let item = menu.addItem(withTitle: "\(option.title)：\(detail)", action: #selector(toggleQuota(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = option.preferenceKey
+        item.state = isVisible(option) ? .on : .off
     }
 
     private func durationLabel(_ minutes: Int64) -> String {
@@ -75,15 +90,12 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func visibleWindows(in snapshot: RateLimitSnapshot) -> [RateLimitWindow] {
-        [snapshot.primary, snapshot.secondary].compactMap { $0 }.filter { window in
-            switch window.windowDurationMins {
-            case 300: UserDefaults.standard.bool(forKey: "showFiveHourQuota")
-            case 10_080: UserDefaults.standard.object(forKey: "showWeeklyQuota") as? Bool ?? true
-            case 43_200: UserDefaults.standard.bool(forKey: "showMonthlyQuota")
-            default: true
-            }
-        }
+    private func window(for option: QuotaOption, in snapshot: RateLimitSnapshot) -> RateLimitWindow? {
+        [snapshot.primary, snapshot.secondary].compactMap { $0 }.first { $0.windowDurationMins == option.minutes }
+    }
+
+    private func isVisible(_ option: QuotaOption) -> Bool {
+        UserDefaults.standard.object(forKey: option.preferenceKey) as? Bool ?? true
     }
 
     private func relativeTime(to date: Date) -> String {
@@ -95,6 +107,10 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
 
     @objc private func refresh() { store.refresh() }
     @objc private func openUsage() { NSWorkspace.shared.open(URL(string: "https://chatgpt.com/codex/settings/usage")!) }
-    @objc private func openSettings() { NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil) }
+    @objc private func toggleQuota(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String else { return }
+        UserDefaults.standard.set(!(UserDefaults.standard.object(forKey: key) as? Bool ?? true), forKey: key)
+        render()
+    }
     @objc private func quit() { NSApp.terminate(nil) }
 }
