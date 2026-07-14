@@ -64,25 +64,25 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         }
         var parts: [String] = []
         if preference("showTodayTokens"), let tokens = store.todayTokens {
-            parts.append("\(displayLabel(key: "customTodayLabel", defaultValue: "今日")) \(compactTokens(tokens))")
+            parts.append(labeledValue(displayLabel(key: "customTodayLabel", defaultValue: "今日"), compactTokens(tokens)))
         }
         if preference("showMonthTokens", defaultValue: false), let tokens = store.monthTokens {
-            parts.append("\(displayLabel(key: "customMonthLabel", defaultValue: "本月")) \(compactTokens(tokens))")
+            parts.append(labeledValue(displayLabel(key: "customMonthLabel", defaultValue: "本月"), compactTokens(tokens)))
         }
         if preference("showYearTokens", defaultValue: false), let tokens = store.yearTokens {
-            parts.append("\(displayLabel(key: "customYearLabel", defaultValue: "本年")) \(compactTokens(tokens))")
+            parts.append(labeledValue(displayLabel(key: "customYearLabel", defaultValue: "本年"), compactTokens(tokens)))
         }
         parts += quotaOptions.compactMap { option -> String? in
             guard isVisible(option), let window = window(for: option, in: snapshot) else { return nil }
             let title = quotaDisplayLabel(option)
             if preference("showResetCountdown") {
                 let reset = window.resetDate.map(relativeTime) ?? "--"
-                return "\(title) \(window.remainingPercent)% · \(reset)"
+                return "\(labeledValue(title, "\(window.remainingPercent)%")) · \(reset)"
             }
-            return "\(title) \(window.remainingPercent)%"
+            return labeledValue(title, "\(window.remainingPercent)%")
         }
         let appLabel = displayLabel(key: "customAppLabel", defaultValue: "Codex")
-        return parts.isEmpty ? "\(appLabel) --" : appLabel + " " + parts.joined(separator: " · ")
+        return parts.isEmpty ? labeledValue(appLabel, "--") : ([appLabel] + parts).filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     private var tooltip: String {
@@ -108,6 +108,7 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         countdown.target = self
         countdown.representedObject = "showResetCountdown"
         countdown.state = preference("showResetCountdown") ? .on : .off
+        menu.addItem(.separator())
         addLabelMenu(to: menu)
         menu.addItem(.separator())
         let refresh = menu.addItem(withTitle: store.isRefreshing ? "正在刷新…" : "立即刷新", action: #selector(refresh), keyEquivalent: "r")
@@ -170,8 +171,11 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
 
     private func displayLabel(key: String, defaultValue: String) -> String {
         guard preference("useCustomLabels", defaultValue: false) else { return defaultValue }
-        let value = UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return value.isEmpty ? defaultValue : value
+        return UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func labeledValue(_ label: String, _ value: String) -> String {
+        label.isEmpty ? value : "\(label) \(value)"
     }
 
     private func addLabelMenu(to menu: NSMenu) {
@@ -231,7 +235,7 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
     private func presentCustomLabelsEditor() {
         let alert = NSAlert()
         alert.messageText = "自定义状态栏文字"
-        alert.informativeText = "留空将使用默认文字。"
+        alert.informativeText = "留空将不显示对应文字，仅保留数值。"
         alert.addButton(withTitle: "保存")
         alert.addButton(withTitle: "取消")
 
