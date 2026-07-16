@@ -10,10 +10,13 @@ APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_MACOS="$APP_BUNDLE/Contents/MacOS"
 APP_RESOURCES="$APP_BUNDLE/Contents/Resources"
 ICON_SOURCE="$ROOT_DIR/icons/CodexQuota.icns"
+MODULE_CACHE_DIR="${TMPDIR:-/tmp}/codex-quota-swift-module-cache"
+SCRATCH_DIR="${TMPDIR:-/tmp}/codex-quota-swift-build"
+SWIFT_BUILD_ARGS=(--scratch-path "$SCRATCH_DIR" -Xswiftc -module-cache-path -Xswiftc "$MODULE_CACHE_DIR")
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
-swift build
-BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
+swift build "${SWIFT_BUILD_ARGS[@]}"
+BUILD_BINARY="$(swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path)/$APP_NAME"
 
 mkdir -p "$APP_MACOS"
 cp "$BUILD_BINARY" "$APP_MACOS/$APP_NAME"
@@ -31,7 +34,7 @@ cat >"$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <key>CFBundleDisplayName</key><string>Codex Quota</string>
 <key>CFBundleIconFile</key><string>CodexQuota.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>1.0.0</string>
+<key>CFBundleShortVersionString</key><string>1.0.1</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSUIElement</key><true/>

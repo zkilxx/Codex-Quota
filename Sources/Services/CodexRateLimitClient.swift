@@ -36,7 +36,7 @@ actor CodexRateLimitClient {
         }
 
         try send(["id": 1, "method": "initialize", "params": [
-            "clientInfo": ["name": "CodexQuota", "version": "1.0"]
+            "clientInfo": ["name": "CodexQuota", "version": "1.0.1"]
         ]], to: input.fileHandleForWriting)
         _ = try readResponse(id: 1, from: output.fileHandleForReading)
 
@@ -51,13 +51,19 @@ actor CodexRateLimitClient {
         guard let usageResult = usageResponse["result"] else { throw CodexRateLimitError.invalidResponse }
         let usageData = try JSONSerialization.data(withJSONObject: usageResult)
         let usage = try JSONDecoder().decode(AccountTokenUsageResponse.self, from: usageData)
-        let localTodayTokens = await localUsageReader.todayTokens()
-        let totals = reconcile(usage: usage, localTodayTokens: localTodayTokens)
+        let localUsage = await localUsageReader.todayUsage()
+        let totals = reconcile(usage: usage, localTodayTokens: localUsage.total)
+        let dailyBuckets = mergeLiveToday(
+            into: parsedDailyBuckets(usage.dailyUsageBuckets ?? []),
+            todayTokens: totals.today
+        )
         return CodexAccountSnapshot(
             rateLimits: rateLimits,
             todayTokens: totals.today,
             monthTokens: totals.month,
-            yearTokens: totals.year
+            yearTokens: totals.year,
+            hourlyUsageBuckets: localUsage.hourlyBuckets,
+            dailyUsageBuckets: dailyBuckets
         )
     }
 
@@ -87,6 +93,30 @@ actor CodexRateLimitClient {
         formatter.timeZone = .current
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: .now)
+    }
+
+    private func parsedDailyBuckets(_ buckets: [AccountTokenUsageResponse.DailyBucket]) -> [TokenUsageBucket] {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return buckets.compactMap { bucket in
+            guard let date = formatter.date(from: bucket.startDate) else { return nil }
+            return TokenUsageBucket(startDate: date, tokens: bucket.tokens)
+        }
+        .sorted { $0.startDate < $1.startDate }
+    }
+
+    private func mergeLiveToday(
+        into buckets: [TokenUsageBucket],
+        todayTokens: Int64
+    ) -> [TokenUsageBucket] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: .now)
+        var merged = buckets.filter { !calendar.isDate($0.startDate, inSameDayAs: today) }
+        merged.append(TokenUsageBucket(startDate: today, tokens: todayTokens))
+        return merged.sorted { $0.startDate < $1.startDate }
     }
 
     private func codexExecutable() throws -> String {
