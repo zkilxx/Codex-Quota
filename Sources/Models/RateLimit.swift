@@ -63,9 +63,16 @@ struct AccountTokenUsageResponse: Decodable, Sendable {
     }
 }
 
+struct TokenUsageBucket: Sendable {
+    let startDate: Date
+    let tokens: Int64
+}
+
 struct CodexAccountSnapshot: Sendable {
     let rateLimits: RateLimitSnapshot
     let todayTokens: Int64
     let monthTokens: Int64
     let yearTokens: Int64
+    let hourlyUsageBuckets: [TokenUsageBucket]
+    let dailyUsageBuckets: [TokenUsageBucket]
 }

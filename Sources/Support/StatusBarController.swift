@@ -1,61 +1,239 @@
 import AppKit
 import Foundation
+import SwiftUI
 
 @MainActor
-final class StatusBarController: NSObject, NSApplicationDelegate {
+final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private struct QuotaOption {
-        let title: String
         let shortTitle: String
         let minutes: Int64
         let preferenceKey: String
     }
 
-    private struct LabelDefinition {
-        let title: String
-        let key: String
-        let defaultValue: String
-    }
-
     private let quotaOptions = [
-        QuotaOption(title: "5小时额度", shortTitle: "5时", minutes: 300, preferenceKey: "showFiveHourQuota"),
-        QuotaOption(title: "1周额度", shortTitle: "1周", minutes: 10_080, preferenceKey: "showWeeklyQuota"),
-        QuotaOption(title: "1月额度", shortTitle: "1月", minutes: 43_200, preferenceKey: "showMonthlyQuota")
-    ]
-    private let labelDefinitions = [
-        LabelDefinition(title: "应用前缀", key: "customAppLabel", defaultValue: "Codex"),
-        LabelDefinition(title: "今日", key: "customTodayLabel", defaultValue: "今日"),
-        LabelDefinition(title: "本月", key: "customMonthLabel", defaultValue: "本月"),
-        LabelDefinition(title: "本年", key: "customYearLabel", defaultValue: "本年"),
-        LabelDefinition(title: "5小时", key: "customFiveHourLabel", defaultValue: "5时"),
-        LabelDefinition(title: "1周", key: "customWeekLabel", defaultValue: "1周"),
-        LabelDefinition(title: "1月", key: "customMonthQuotaLabel", defaultValue: "1月")
+        QuotaOption(shortTitle: "5时", minutes: 300, preferenceKey: "showFiveHourQuota"),
+        QuotaOption(shortTitle: "1周", minutes: 10_080, preferenceKey: "showWeeklyQuota"),
+        QuotaOption(shortTitle: "1月", minutes: 43_200, preferenceKey: "showMonthlyQuota")
     ]
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    private let popover = NSPopover()
     private let store = QuotaStore()
+    private weak var activeEffectView: NSVisualEffectView?
+    private var pendingStatusItemUpdate = false
+    private var systemAppearanceObservation: NSKeyValueObservation?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        statusItem.button?.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+        if let button = statusItem.button {
+            button.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+            button.target = self
+            button.action = #selector(togglePopover)
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        }
+
+        popover.behavior = .transient
+        popover.animates = true
+        popover.delegate = self
+        popover.hasFullSizeContent = true
+        popover.contentSize = NSSize(width: 420, height: 600)
+
+        systemAppearanceObservation = NSApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor in
+                guard UserDefaults.standard.string(forKey: "interfaceAppearance") ?? "system" == "system" else { return }
+                self?.applyInterfaceAppearance(to: self?.activeEffectView)
+            }
+        }
+
         store.onUpdate = { [weak self] in self?.render() }
-        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+        NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
             Task { @MainActor in self?.render() }
         }
         render()
-        if CommandLine.arguments.contains("--screenshot-menu") {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
-                self?.statusItem.button?.performClick(nil)
+
+        if CommandLine.arguments.contains("--render-snapshot") {
+            let initialPage: QuotaMenuPage
+            if CommandLine.arguments.contains("--about") {
+                initialPage = .about
+            } else if CommandLine.arguments.contains("--edit-labels") {
+                initialPage = .statusBarDisplay
+            } else {
+                initialPage = .overview
             }
-        }
-        if CommandLine.arguments.contains("--edit-labels") {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-                self?.presentCustomLabelsEditor()
+            let delay: TimeInterval = initialPage == .overview ? 30 : 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.renderSnapshot(page: initialPage)
+            }
+        } else if CommandLine.arguments.contains("--screenshot-menu") {
+            let initialPage: QuotaMenuPage
+            if CommandLine.arguments.contains("--custom-labels") {
+                initialPage = .customLabels
+            } else if CommandLine.arguments.contains("--about") {
+                initialPage = .about
+            } else if CommandLine.arguments.contains("--edit-labels") {
+                initialPage = .statusBarDisplay
+            } else {
+                initialPage = .overview
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                self?.showPopover(initialPage: initialPage)
+            }
+        } else if CommandLine.arguments.contains("--edit-labels") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                self?.showPopover(initialPage: .statusBarDisplay)
             }
         }
     }
 
     private func render() {
+        if popover.isShown {
+            pendingStatusItemUpdate = true
+        } else {
+            updateStatusItem()
+        }
+        applyInterfaceAppearance(to: activeEffectView)
+    }
+
+    private func updateStatusItem() {
         statusItem.button?.title = statusTitle
         statusItem.button?.toolTip = tooltip
-        statusItem.menu = makeMenu()
+        pendingStatusItemUpdate = false
+    }
+
+    @objc private func togglePopover() {
+        if popover.isShown {
+            popover.performClose(nil)
+        } else {
+            showPopover(initialPage: .overview)
+        }
+    }
+
+    private func showPopover(initialPage: QuotaMenuPage) {
+        guard let button = statusItem.button else { return }
+        popover.contentSize = NSSize(width: 420, height: preferredHeight(for: initialPage))
+        let view = PremiumQuotaMenuView(
+            store: store,
+            initialPage: initialPage,
+            onClose: { [weak self] in self?.popover.performClose(nil) },
+            onPreferredHeightChange: { [weak self] height in
+                guard let self else { return }
+                self.resizePopover(to: height)
+            }
+        )
+        popover.contentViewController = makeFrostedContentController(rootView: view)
+        NSApp.activate(ignoringOtherApps: true)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        button.highlight(true)
+
+        DispatchQueue.main.async { [weak self] in
+            guard let window = self?.popover.contentViewController?.view.window else { return }
+            window.makeKey()
+            window.orderFrontRegardless()
+        }
+    }
+
+    private func resizePopover(to height: CGFloat) {
+        guard abs(popover.contentSize.height - height) > 0.5 else { return }
+        // NSPopover owns its positioning window and natively animates contentSize
+        // changes while `animates` is enabled. A single assignment preserves the
+        // status-item anchor; custom frame loops cause AppKit to reposition twice.
+        popover.contentSize = NSSize(width: 420, height: height)
+    }
+
+    private func makeFrostedContentController<Content: View>(rootView: Content) -> NSViewController {
+        let effectView = NSVisualEffectView()
+        effectView.material = .menu
+        effectView.blendingMode = .behindWindow
+        effectView.state = .active
+        effectView.isEmphasized = false
+        applyInterfaceAppearance(to: effectView)
+        activeEffectView = effectView
+
+        let hostingController = NSHostingController(rootView: rootView)
+        // Preserve SwiftUI's standard sizing metrics, but never publish them as
+        // the popover controller's preferred size.
+        hostingController.sizingOptions = .standardBounds
+        let hostingView = hostingController.view
+        hostingView.frame = effectView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+
+        effectView.addSubview(hostingView)
+
+        let container = NSViewController()
+        container.view = effectView
+        container.addChild(hostingController)
+        return container
+    }
+
+    private func renderSnapshot(page: QuotaMenuPage) {
+        let height = preferredHeight(for: page)
+        let scheme: ColorScheme = UserDefaults.standard.string(forKey: "interfaceAppearance") == "dark" ? .dark : .light
+        let period: UsagePeriod
+        if CommandLine.arguments.contains("--period=month") {
+            period = .month
+        } else if CommandLine.arguments.contains("--period=year") {
+            period = .year
+        } else {
+            period = .today
+        }
+        let view = PremiumQuotaMenuView(store: store, initialPage: page, initialPeriod: period)
+            .environment(\.colorScheme, scheme)
+            .background(
+                scheme == .dark
+                    ? Color(red: 0.03, green: 0.08, blue: 0.13)
+                    : Color(red: 0.94, green: 0.97, blue: 0.99)
+            )
+        let hostingView = NSHostingView(rootView: view)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 420, height: height)
+        hostingView.layoutSubtreeIfNeeded()
+
+        guard let bitmap = hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds) else {
+            NSApp.terminate(nil)
+            return
+        }
+        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+        guard let data = bitmap.representation(using: .png, properties: [:]) else {
+            NSApp.terminate(nil)
+            return
+        }
+
+        let pathArgument = CommandLine.arguments.first { $0.hasPrefix("--snapshot-path=") }
+        let path = pathArgument.map { String($0.dropFirst("--snapshot-path=".count)) }
+            ?? "/tmp/codex-quota-offscreen.png"
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        NSApp.terminate(nil)
+    }
+
+    private func applyInterfaceAppearance(to view: NSView?) {
+        let appearance: NSAppearance?
+        switch UserDefaults.standard.string(forKey: "interfaceAppearance") ?? "system" {
+        case "light": appearance = NSAppearance(named: .aqua)
+        case "dark": appearance = NSAppearance(named: .darkAqua)
+        default: appearance = NSApp.effectiveAppearance
+        }
+        popover.appearance = appearance
+        view?.appearance = appearance
+        view?.window?.appearance = appearance
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        statusItem.button?.highlight(false)
+        if pendingStatusItemUpdate {
+            updateStatusItem()
+        }
+    }
+
+    private func preferredHeight(for page: QuotaMenuPage) -> CGFloat {
+        switch page {
+        case .overview: 600
+        case .statusBarDisplay: 570
+        case .customLabels: 520
+        case .about: 470
+        }
     }
 
     private var statusTitle: String {
@@ -73,7 +251,8 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
             parts.append(labeledValue(displayLabel(key: "customYearLabel", defaultValue: "本年"), compactTokens(tokens)))
         }
         parts += quotaOptions.compactMap { option -> String? in
-            guard isVisible(option), let window = window(for: option, in: snapshot) else { return nil }
+            guard preference(option.preferenceKey),
+                  let window = window(for: option, in: snapshot) else { return nil }
             let title = quotaDisplayLabel(option)
             if preference("showResetCountdown") {
                 let reset = window.resetDate.map(relativeTime) ?? "--"
@@ -92,74 +271,8 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         return "Codex 限额与刷新时间"
     }
 
-    private func makeMenu() -> NSMenu {
-        let menu = NSMenu()
-        if let error = store.errorMessage, store.snapshot == nil {
-            menu.addItem(withTitle: error, action: nil, keyEquivalent: "")
-        }
-        let tokenTitle = store.todayTokens.map { "今日累计 Token：\(formattedTokens($0))" } ?? "今日累计 Token：正在读取…"
-        let tokenItem = menu.addItem(withTitle: tokenTitle, action: #selector(togglePreference(_:)), keyEquivalent: "")
-        tokenItem.target = self
-        tokenItem.representedObject = "showTodayTokens"
-        tokenItem.state = preference("showTodayTokens") ? .on : .off
-        addTokenItem(title: "本月累计 Token", tokens: store.monthTokens, key: "showMonthTokens", defaultValue: false, to: menu)
-        addTokenItem(title: "本年累计 Token", tokens: store.yearTokens, key: "showYearTokens", defaultValue: false, to: menu)
-        menu.addItem(.separator())
-        for option in quotaOptions { addQuotaOption(option, snapshot: store.snapshot, to: menu) }
-        let countdown = menu.addItem(withTitle: "显示刷新倒计时", action: #selector(togglePreference(_:)), keyEquivalent: "")
-        countdown.target = self
-        countdown.representedObject = "showResetCountdown"
-        countdown.state = preference("showResetCountdown") ? .on : .off
-        menu.addItem(.separator())
-        addLabelMenu(to: menu)
-        menu.addItem(.separator())
-        let refresh = menu.addItem(withTitle: store.isRefreshing ? "正在刷新…" : "立即刷新", action: #selector(refresh), keyEquivalent: "r")
-        refresh.target = self
-        refresh.isEnabled = !store.isRefreshing
-        let usage = menu.addItem(withTitle: "打开 Codex 用量设置", action: #selector(openUsage), keyEquivalent: "")
-        usage.target = self
-        menu.addItem(.separator())
-        let quit = menu.addItem(withTitle: "退出 Codex Quota", action: #selector(quit), keyEquivalent: "q")
-        quit.target = self
-        return menu
-    }
-
-    private func addQuotaOption(_ option: QuotaOption, snapshot: RateLimitSnapshot?, to menu: NSMenu) {
-        let detail: String
-        if let snapshot, let window = window(for: option, in: snapshot) {
-            let reset = window.resetDate.map { "，刷新 \($0.formatted(date: .abbreviated, time: .shortened))" } ?? ""
-            detail = "剩余 \(window.remainingPercent)%\(reset)"
-        } else {
-            detail = store.isRefreshing ? "正在读取…" : "暂无数据"
-        }
-        let item = menu.addItem(withTitle: "\(option.title)：\(detail)", action: #selector(togglePreference(_:)), keyEquivalent: "")
-        item.target = self
-        item.representedObject = option.preferenceKey
-        item.state = isVisible(option) ? .on : .off
-    }
-
-    private func addTokenItem(title: String, tokens: Int64?, key: String, defaultValue: Bool, to menu: NSMenu) {
-        let detail = tokens.map(formattedTokens) ?? "正在读取…"
-        let item = menu.addItem(withTitle: "\(title)：\(detail)", action: #selector(togglePreference(_:)), keyEquivalent: "")
-        item.target = self
-        item.representedObject = key
-        item.state = preference(key, defaultValue: defaultValue) ? .on : .off
-    }
-
-    private func durationLabel(_ minutes: Int64) -> String {
-        switch minutes {
-        case 10_080: "1周额度"
-        case 1_440: "1天额度"
-        default: "\(minutes) 分钟额度"
-        }
-    }
-
     private func window(for option: QuotaOption, in snapshot: RateLimitSnapshot) -> RateLimitWindow? {
         [snapshot.primary, snapshot.secondary].compactMap { $0 }.first { $0.windowDurationMins == option.minutes }
-    }
-
-    private func isVisible(_ option: QuotaOption) -> Bool {
-        preference(option.preferenceKey)
     }
 
     private func quotaDisplayLabel(_ option: QuotaOption) -> String {
@@ -171,6 +284,10 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func preference(_ key: String, defaultValue: Bool = true) -> Bool {
+        UserDefaults.standard.object(forKey: key) as? Bool ?? defaultValue
+    }
+
     private func displayLabel(key: String, defaultValue: String) -> String {
         guard preference("useCustomLabels", defaultValue: false) else { return defaultValue }
         return UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -178,23 +295,6 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
 
     private func labeledValue(_ label: String, _ value: String) -> String {
         label.isEmpty ? value : "\(label) \(value)"
-    }
-
-    private func addLabelMenu(to menu: NSMenu) {
-        let parent = NSMenuItem(title: "状态栏文字", action: nil, keyEquivalent: "")
-        let submenu = NSMenu(title: "状态栏文字")
-        let defaults = submenu.addItem(withTitle: "默认文字", action: #selector(useDefaultLabels), keyEquivalent: "")
-        defaults.target = self
-        defaults.state = preference("useCustomLabels", defaultValue: false) ? .off : .on
-        let custom = submenu.addItem(withTitle: "自定义文字…", action: #selector(editCustomLabels), keyEquivalent: "")
-        custom.target = self
-        custom.state = preference("useCustomLabels", defaultValue: false) ? .on : .off
-        parent.submenu = submenu
-        menu.addItem(parent)
-    }
-
-    private func preference(_ key: String, defaultValue: Bool = true) -> Bool {
-        UserDefaults.standard.object(forKey: key) as? Bool ?? defaultValue
     }
 
     private func relativeTime(to date: Date) -> String {
@@ -209,66 +309,4 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         if tokens >= 1_000 { return String(format: "%.1fK", Double(tokens) / 1_000) }
         return "\(tokens)"
     }
-
-    private func formattedTokens(_ tokens: Int64) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter.string(from: NSNumber(value: tokens)) ?? "\(tokens)"
-    }
-
-    @objc private func refresh() { store.refresh() }
-    @objc private func openUsage() { NSWorkspace.shared.open(URL(string: "https://chatgpt.com/codex/settings/usage")!) }
-    @objc private func togglePreference(_ sender: NSMenuItem) {
-        guard let key = sender.representedObject as? String else { return }
-        let defaultValue = key == "showMonthTokens" || key == "showYearTokens" ? false : true
-        UserDefaults.standard.set(!preference(key, defaultValue: defaultValue), forKey: key)
-        render()
-    }
-    @objc private func useDefaultLabels() {
-        UserDefaults.standard.set(false, forKey: "useCustomLabels")
-        render()
-    }
-    @objc private func editCustomLabels() {
-        DispatchQueue.main.async { [weak self] in
-            self?.presentCustomLabelsEditor()
-        }
-    }
-
-    private func presentCustomLabelsEditor() {
-        let alert = NSAlert()
-        alert.messageText = "自定义状态栏文字"
-        alert.informativeText = "留空将不显示对应文字，仅保留数值。"
-        alert.addButton(withTitle: "保存")
-        alert.addButton(withTitle: "取消")
-
-        let rowHeight: CGFloat = 30
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 330, height: rowHeight * CGFloat(labelDefinitions.count)))
-        var fields: [NSTextField] = []
-        for (index, definition) in labelDefinitions.enumerated() {
-            let y = container.bounds.height - CGFloat(index + 1) * rowHeight + 4
-            let title = NSTextField(labelWithString: definition.title)
-            title.alignment = .right
-            title.frame = NSRect(x: 0, y: y, width: 90, height: 22)
-            let field = NSTextField(string: UserDefaults.standard.string(forKey: definition.key) ?? definition.defaultValue)
-            field.placeholderString = definition.defaultValue
-            field.frame = NSRect(x: 102, y: y - 1, width: 220, height: 24)
-            container.addSubview(title)
-            container.addSubview(field)
-            fields.append(field)
-        }
-        alert.accessoryView = container
-        NSApp.activate(ignoringOtherApps: true)
-        alert.window.level = .floating
-        alert.window.makeKeyAndOrderFront(nil)
-        if let firstField = fields.first {
-            alert.window.makeFirstResponder(firstField)
-        }
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        for (definition, field) in zip(labelDefinitions, fields) {
-            UserDefaults.standard.set(field.stringValue, forKey: definition.key)
-        }
-        UserDefaults.standard.set(true, forKey: "useCustomLabels")
-        render()
-    }
-    @objc private func quit() { NSApp.terminate(nil) }
 }
