@@ -9,11 +9,11 @@
 <h3 align="center">Keep Codex usage, quota, and reset times in the macOS menu bar</h3>
 
 <p align="center">
-  macOS 14+ · SwiftUI · v1.0.1 · Apache-2.0
+  macOS 14+ · SwiftUI · v1.0.2 · Apache-2.0
 </p>
 
 <p align="center">
-  <img src="assets/codex-quota-overview-dark-live.png" alt="Codex Quota 1.0.1 overview in Dark Mode" width="420" />
+  <img src="assets/codex-quota-overview-dark-live.png" alt="Codex Quota 1.0.2 overview in Dark Mode" width="420" />
 </p>
 
 Codex Quota is a lightweight native macOS menu bar utility. It reads quota and token usage from the locally signed-in Codex service and presents live data in a translucent frosted-glass panel. No additional sign-in is required, and account credentials or conversation content are never sent to a third-party server.
@@ -116,7 +116,7 @@ Optional modes:
 
 ## About the USD estimate
 
-The USD amount is a simulation, not a bill or an actual charge. Version 1.0.1 uses a fixed blended estimate of `$7.875` per one million tokens. The local interface does not separate input, cached input, and output tokens, so actual cost varies by model, cache ratio, input/output mix, and plan rules.
+The USD amount is a simulation, not a bill or an actual charge. Version 1.0.2 uses a fixed blended estimate of `$7.875` per one million tokens. The local interface does not separate input, cached input, and output tokens, so actual cost varies by model, cache ratio, input/output mix, and plan rules.
 
 ## Privacy
 
