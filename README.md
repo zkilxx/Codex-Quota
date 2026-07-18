@@ -9,11 +9,11 @@
 <h3 align="center">把 Codex 用量、额度和刷新时间留在 macOS 菜单栏</h3>
 
 <p align="center">
-  macOS 14+ · SwiftUI · v1.0.1 · Apache-2.0
+  macOS 14+ · SwiftUI · v1.0.2 · Apache-2.0
 </p>
 
 <p align="center">
-  <img src="assets/codex-quota-overview-dark-live.png" alt="Codex Quota 1.0.1 深色主面板" width="420" />
+  <img src="assets/codex-quota-overview-dark-live.png" alt="Codex Quota 1.0.2 深色主面板" width="420" />
 </p>
 
 Codex Quota 是一款轻量、原生的 macOS 菜单栏工具。它通过本机 Codex 服务读取已登录账号的额度与 Token 用量，以半透明毛玻璃面板展示实时数据，不需要额外登录，也不会把账号凭据或会话内容发送到第三方服务器。
@@ -116,7 +116,7 @@ cd Codex-Quota
 
 ## 美元金额说明
 
-界面中的美元金额是模拟换算，不是账单或实际扣费。当前版本使用每 100 万 Token `$7.875` 的固定混合估算系数；由于本机接口不区分输入、缓存输入和输出 Token，实际费用会随模型、缓存比例、输入输出结构和套餐规则变化。
+界面中的美元金额是模拟换算，不是账单或实际扣费。1.0.2 使用每 100 万 Token `$7.875` 的固定混合估算系数；由于本机接口不区分输入、缓存输入和输出 Token，实际费用会随模型、缓存比例、输入输出结构和套餐规则变化。
 
 ## 隐私
 

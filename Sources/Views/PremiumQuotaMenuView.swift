@@ -16,6 +16,14 @@ enum UsagePeriod: String, CaseIterable, Identifiable {
         }
     }
 
+    var cumulativeTitle: String {
+        switch self {
+        case .today: "今日累计"
+        case .month: "本月累计"
+        case .year: "本年累计"
+        }
+    }
+
     @MainActor
     func tokens(in store: QuotaStore) -> Int64? {
         switch self {
@@ -107,6 +115,7 @@ struct PremiumQuotaMenuView: View {
     @State private var selectedPeriod = UsagePeriod.today
     @State private var chartRedrawID = 0
     @State private var refreshCompleted = false
+    @State private var isPriceInfoPresented = false
     @State private var panelDarkAmount: Double
     @Namespace private var periodSelectionAnimation
     @AppStorage("interfaceAppearance") private var interfaceAppearance = InterfaceAppearance.system.rawValue
@@ -314,7 +323,7 @@ struct PremiumQuotaMenuView: View {
     private var hero: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .firstTextBaseline) {
-                Text("\(selectedPeriod.title) Token")
+                Text(selectedPeriod.cumulativeTitle)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(secondaryText)
                     .contentTransition(.interpolate)
@@ -323,10 +332,21 @@ struct PremiumQuotaMenuView: View {
                     .font(.system(size: 14, weight: .semibold).monospacedDigit())
                     .foregroundStyle(accent)
                     .contentTransition(.numericText(value: Double(selectedTokens ?? 0)))
-                Image(systemName: "info.circle")
-                    .font(.caption)
-                    .foregroundStyle(tertiaryText)
-                    .help("按模拟单价换算，并非实际账单")
+                Button {
+                    isPriceInfoPresented.toggle()
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(tertiaryText)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("查看美元金额说明")
+                .accessibilityLabel("美元金额说明")
+                .popover(isPresented: $isPriceInfoPresented, arrowEdge: .bottom) {
+                    priceEstimateInfo
+                }
             }
 
             HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -363,6 +383,21 @@ struct PremiumQuotaMenuView: View {
             .contentTransition(.interpolate)
             .animation(.smooth(duration: 0.42), value: selectedPeriod)
         }
+    }
+
+    private var priceEstimateInfo: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("美元金额说明", systemImage: "dollarsign.circle")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(primaryText)
+
+            Text("美元金额为模拟估算，并非实际账单。当前按每 100 万 Token 约 $7.875 换算，实际费用会因模型、缓存和输入输出比例而不同。")
+                .font(.system(size: 11))
+                .foregroundStyle(secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(width: 250, alignment: .leading)
     }
 
     private var periodPicker: some View {
@@ -435,8 +470,9 @@ struct PremiumQuotaMenuView: View {
                 Text(resetDescription(for: window))
                     .font(.system(size: 10))
                     .foregroundStyle(tertiaryText)
+                    .lineLimit(1)
             }
-            .frame(width: 100, alignment: .leading)
+            .frame(width: 132, alignment: .leading)
 
             ProgressView(value: Double(remaining), total: 100)
                 .progressViewStyle(.linear)
@@ -622,7 +658,11 @@ struct PremiumQuotaMenuView: View {
 
     private func resetDescription(for window: RateLimitWindow?) -> String {
         guard let resetDate = window?.resetDate else { return store.isRefreshing ? "正在读取" : "暂未提供" }
-        return "重置于 \(resetDate.formatted(.dateTime.month().day().hour().minute()))"
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "M月d日 HH:mm"
+        let formattedDate = formatter.string(from: resetDate)
+        return "\(formattedDate) 重置"
     }
 
     private func compactHeroTokens(_ tokens: Int64) -> String {
