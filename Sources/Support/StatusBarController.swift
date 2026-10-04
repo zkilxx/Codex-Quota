@@ -21,6 +21,7 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
     private weak var activeEffectView: NSVisualEffectView?
     private var pendingStatusItemUpdate = false
     private var systemAppearanceObservation: NSKeyValueObservation?
+    private var resetCreditCountdownTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let button = statusItem.button {
@@ -34,7 +35,7 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
         popover.animates = true
         popover.delegate = self
         popover.hasFullSizeContent = true
-        popover.contentSize = NSSize(width: 420, height: 600)
+        popover.contentSize = NSSize(width: 420, height: fittedPopoverHeight(PanelLayoutMetrics.overviewHeight))
 
         systemAppearanceObservation = NSApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in
@@ -49,9 +50,22 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.render() }
+            Task { @MainActor in
+                guard let self else { return }
+                self.store.reloadRemoteSyncConfiguration()
+                self.configureResetCreditCountdownTimer()
+                self.render()
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: RemoteSyncConfigurationStore.configurationDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.store.reloadRemoteSyncConfiguration() }
         }
         render()
+        configureResetCreditCountdownTimer()
 
         if CommandLine.arguments.contains("--render-snapshot") {
             let initialPage: QuotaMenuPage
@@ -62,9 +76,8 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
             } else {
                 initialPage = .overview
             }
-            let delay: TimeInterval = initialPage == .overview ? 30 : 1
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                self?.renderSnapshot(page: initialPage)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                self?.renderSnapshotWhenReady(page: initialPage)
             }
         } else if CommandLine.arguments.contains("--screenshot-menu") {
             let initialPage: QuotaMenuPage
@@ -97,9 +110,29 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
     }
 
     private func updateStatusItem() {
-        statusItem.button?.title = statusTitle
+        let title = statusTitle
+        if statusItem.button?.title != title {
+            statusItem.button?.title = title
+        }
         statusItem.button?.toolTip = tooltip
         pendingStatusItemUpdate = false
+    }
+
+    private func configureResetCreditCountdownTimer() {
+        guard preference("showResetCreditCountdown", defaultValue: false) else {
+            guard let timer = resetCreditCountdownTimer else { return }
+            timer.invalidate()
+            resetCreditCountdownTimer = nil
+            updateStatusItem()
+            return
+        }
+        guard resetCreditCountdownTimer == nil else { return }
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.updateStatusItem() }
+        }
+        resetCreditCountdownTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        updateStatusItem()
     }
 
     @objc private func togglePopover() {
@@ -112,7 +145,7 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
 
     private func showPopover(initialPage: QuotaMenuPage) {
         guard let button = statusItem.button else { return }
-        popover.contentSize = NSSize(width: 420, height: preferredHeight(for: initialPage))
+        popover.contentSize = NSSize(width: 420, height: fittedPopoverHeight(preferredHeight(for: initialPage)))
         let view = PremiumQuotaMenuView(
             store: store,
             initialPage: initialPage,
@@ -135,11 +168,17 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
     }
 
     private func resizePopover(to height: CGFloat) {
+        let height = fittedPopoverHeight(height)
         guard abs(popover.contentSize.height - height) > 0.5 else { return }
         // NSPopover owns its positioning window and natively animates contentSize
         // changes while `animates` is enabled. A single assignment preserves the
         // status-item anchor; custom frame loops cause AppKit to reposition twice.
         popover.contentSize = NSSize(width: 420, height: height)
+    }
+
+    private func fittedPopoverHeight(_ requestedHeight: CGFloat) -> CGFloat {
+        guard let screen = statusItem.button?.window?.screen ?? NSScreen.main else { return requestedHeight }
+        return min(requestedHeight, max(1, screen.visibleFrame.height - 16))
     }
 
     private func makeFrostedContentController<Content: View>(rootView: Content) -> NSViewController {
@@ -169,6 +208,17 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
         return container
     }
 
+    private func renderSnapshotWhenReady(page: QuotaMenuPage, attempt: Int = 0) {
+        let includesStatusReport = CommandLine.arguments.contains { $0.hasPrefix("--status-report-path=") }
+        if (page == .overview || includesStatusReport), store.isRefreshing, attempt < 30 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                self?.renderSnapshotWhenReady(page: page, attempt: attempt + 1)
+            }
+            return
+        }
+        renderSnapshot(page: page)
+    }
+
     private func renderSnapshot(page: QuotaMenuPage) {
         let height = preferredHeight(for: page)
         let scheme: ColorScheme = UserDefaults.standard.string(forKey: "interfaceAppearance") == "dark" ? .dark : .light
@@ -181,6 +231,7 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
             period = .today
         }
         let view = PremiumQuotaMenuView(store: store, initialPage: page, initialPeriod: period)
+            .frame(width: 420, height: height)
             .environment(\.colorScheme, scheme)
             .background(
                 scheme == .dark
@@ -188,9 +239,29 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
                     : Color(red: 0.94, green: 0.97, blue: 0.99)
             )
         let hostingView = NSHostingView(rootView: view)
+        hostingView.sizingOptions = []
         hostingView.frame = NSRect(x: 0, y: 0, width: 420, height: height)
+        let renderWindow = NSWindow(
+            contentRect: hostingView.frame,
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        renderWindow.isReleasedWhenClosed = false
+        renderWindow.contentView = hostingView
+        renderWindow.orderBack(nil)
         hostingView.layoutSubtreeIfNeeded()
+        renderWindow.displayIfNeeded()
 
+        // Native scroll views need a window and a layout pass before capture.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [self, renderWindow, hostingView] in
+            renderWindow.displayIfNeeded()
+            hostingView.layoutSubtreeIfNeeded()
+            saveRenderedSnapshot(hostingView)
+        }
+    }
+
+    private func saveRenderedSnapshot(_ hostingView: NSView) {
         guard let bitmap = hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds) else {
             NSApp.terminate(nil)
             return
@@ -205,6 +276,22 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
         let path = pathArgument.map { String($0.dropFirst("--snapshot-path=".count)) }
             ?? "/tmp/codex-quota-offscreen.png"
         try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        if let reportArgument = CommandLine.arguments.first(where: { $0.hasPrefix("--status-report-path=") }) {
+            let reportPath = String(reportArgument.dropFirst("--status-report-path=".count))
+            let initialTitle = statusItem.button?.title ?? ""
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [self] in
+                let report: [String: Any] = [
+                    "enabled": preference("showResetCreditCountdown", defaultValue: false),
+                    "initialTitle": initialTitle,
+                    "titleAfterTwoSeconds": statusItem.button?.title ?? ""
+                ]
+                if let reportData = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
+                    try? reportData.write(to: URL(fileURLWithPath: reportPath), options: .atomic)
+                }
+                NSApp.terminate(nil)
+            }
+            return
+        }
         NSApp.terminate(nil)
     }
 
@@ -229,8 +316,8 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
 
     private func preferredHeight(for page: QuotaMenuPage) -> CGFloat {
         switch page {
-        case .overview: 600
-        case .statusBarDisplay: 570
+        case .overview: PanelLayoutMetrics.overviewHeight
+        case .statusBarDisplay: 730
         case .customLabels: 520
         case .about: 470
         }
@@ -260,6 +347,10 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
             }
             return labeledValue(title, "\(window.remainingPercent)%")
         }
+        if preference("showResetCreditCountdown", defaultValue: false),
+           let countdown = ResetCreditCountdownFormatter.menuBarText(summary: store.resetCredits, now: .now) {
+            parts.append(countdown)
+        }
         let appLabel = displayLabel(key: "customAppLabel", defaultValue: "Codex")
         guard !parts.isEmpty else { return labeledValue(appLabel, "--") }
         let metrics = parts.joined(separator: " · ")
@@ -268,7 +359,10 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
 
     private var tooltip: String {
         if let error = store.errorMessage { return error }
-        return "Codex 限额与刷新时间"
+        if case .unavailable(let message) = store.remoteSyncState {
+            return "多端同步：\(message)"
+        }
+        return "Codex 限额与刷新时间 · 数据来源：\(store.dataSourceDescription)"
     }
 
     private func window(for option: QuotaOption, in snapshot: RateLimitSnapshot) -> RateLimitWindow? {
@@ -285,7 +379,8 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
     }
 
     private func preference(_ key: String, defaultValue: Bool = true) -> Bool {
-        UserDefaults.standard.object(forKey: key) as? Bool ?? defaultValue
+        guard UserDefaults.standard.object(forKey: key) != nil else { return defaultValue }
+        return UserDefaults.standard.bool(forKey: key)
     }
 
     private func displayLabel(key: String, defaultValue: String) -> String {

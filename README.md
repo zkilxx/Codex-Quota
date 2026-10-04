@@ -9,14 +9,23 @@
 <h3 align="center">把 Codex 用量、额度和刷新时间留在 macOS 菜单栏</h3>
 
 <p align="center">
-  macOS 14+ · SwiftUI · v1.0.2 · Apache-2.0
+  macOS 14+ · SwiftUI · v1.1.0 · Apache-2.0
 </p>
 
 <p align="center">
-  <img src="assets/codex-quota-overview-dark-live.png" alt="Codex Quota 1.0.2 深色主面板" width="420" />
+  <img src="assets/codex-quota-overview-v1.1.0.png" alt="Codex Quota 1.1.0 深色主面板" width="420" />
 </p>
 
-Codex Quota 是一款轻量、原生的 macOS 菜单栏工具。它通过本机 Codex 服务读取已登录账号的额度与 Token 用量，以半透明毛玻璃面板展示实时数据，不需要额外登录，也不会把账号凭据或会话内容发送到第三方服务器。
+Codex Quota 是一款轻量、原生的 macOS 菜单栏工具。它通过本机 Codex 服务读取已登录账号的额度与 Token 用量，以半透明毛玻璃面板展示实时数据，不需要额外登录。默认情况下数据只在本机处理；实验性的跨平台同步只上传端到端加密后的配额快照，不上传账号凭据或会话内容。
+
+## 1.1.0 更新
+
+- 新增完全重置卡到期列表、每秒倒计时与 24 小时内到期提醒。
+- 可在菜单栏显示最近到期重置卡的倒计时，默认关闭。
+- 兼容 Codex 桌面版新旧内置 CLI 路径，以及用户目录和 PATH 中的 Codex CLI。
+- 修复启动时出现空白窗口的问题；面板可滚动并适应屏幕可用高度。
+- 改进服务端与本地 Token 用量合并，避免统计追上后重复计数。
+- 新增实验性跨平台加密快照同步，以及可自托管的 Node relay；不包含 Android 客户端或托管服务。
 
 ## 1.0.1 亮点
 
@@ -37,8 +46,8 @@ Codex Quota 是一款轻量、原生的 macOS 菜单栏工具。它通过本机 
     <td align="center"><strong>关于与版本检查</strong></td>
   </tr>
   <tr>
-    <td><img src="assets/codex-quota-settings-light.png" alt="Codex Quota 浅色设置页" width="390" /></td>
-    <td><img src="assets/codex-quota-about-dark.png" alt="Codex Quota 深色关于页" width="390" /></td>
+    <td><img src="assets/codex-quota-settings-v1.1.0.png" alt="Codex Quota 1.1.0 深色设置页" width="390" /></td>
+    <td><img src="assets/codex-quota-about-v1.1.0.png" alt="Codex Quota 1.1.0 深色关于页" width="390" /></td>
   </tr>
 </table>
 
@@ -58,6 +67,14 @@ Codex Quota 是一款轻量、原生的 macOS 菜单栏工具。它通过本机 
 - 同时显示剩余百分比、进度条和精确重置时间。
 - 启动时自动同步，此后每 60 秒刷新一次。
 - 支持手动刷新，并明确显示同步中、已更新和异常状态。
+
+### 完全重置卡倒计时
+
+- 自动读取可用重置卡，按到期时间由近到远排列。
+- 显示本地时区的到期日期与时间，以及每秒更新的剩余天数和时分秒。
+- 24 小时内到期的卡用橙色标示，到期后自动从可用列表移除。
+- 未提供明细时保留可用数量并显示提示，面板支持滚动查看更多卡。
+- 设置中可开启“显示重置卡倒计时”，在菜单栏显示最近到期的一张可用卡；默认关闭，到期后自动切换下一张。
 
 ### 菜单栏与外观
 
@@ -81,12 +98,24 @@ Codex Quota 在本机合并两类只读数据：
 1. `codex app-server --stdio`：读取账号额度、重置时间和服务端 Token 汇总。
 2. `~/.codex/sessions` 与 `~/.codex/archived_sessions`：读取当天会话中的 `token_count` 事件，补足服务端统计延迟并生成小时曲线。
 
-本地增量只用于校正当天数据，并同步反映到本月和本年总量。应用不读取账号密码，不保存认证令牌，不上传提示词或会话内容。
+服务端当天统计尚未刷新时，应用会补齐本地已发生的当天用量，并同步反映到本月和本年总量；服务端统计追上后不会重复累加。应用不读取账号密码，不保存认证令牌，不上传提示词或会话内容。
+
+## 实验性跨平台同步
+
+设置中可以启用跨平台同步，并填写自托管同步服务地址。应用会生成一段 256 位随机同步码，保存在 macOS 钥匙串中；同一同步码可供 Android 或其他客户端使用。
+
+- 快照在客户端使用 AES-256-GCM 加密后上传。
+- 中转服务只保存密文、更新时间和随机设备 ID。
+- 配额快照采用“较新更新时间胜出”，不会把多个设备的账号级 Token 总量相加，避免重复计数。
+- 远端地址必须使用 HTTPS；只有本机调试允许 `http://127.0.0.1`。
+- 可自托管的无依赖 Node relay 和 Android 协议说明位于 [`relay/`](relay/README.md)。
+
+这是一次协议验证实现，不包含托管服务或现成 Android 客户端。同步码等同于该加密记录的访问权，应通过可信渠道传递。
 
 ## 系统要求
 
 - macOS 14 Sonoma 或更高版本。
-- 已安装 ChatGPT macOS 应用中附带的 Codex，或在 `/usr/local/bin/codex`、`/opt/homebrew/bin/codex` 提供可执行的 Codex CLI。
+- 已安装 Codex 桌面版（兼容 `ChatGPT.app`、`Codex.app` 的新旧内置 CLI 路径），或提供可执行的 Codex CLI。应用也会查找用户的 `Applications` 目录、常见 CLI 安装位置和 `PATH`。
 - 从源码构建时需要 Swift 6 工具链。
 
 ## 安装
@@ -113,17 +142,19 @@ cd Codex-Quota
 - `./script/build_and_run.sh --logs`：启动并查看进程日志。
 - `./script/build_and_run.sh --telemetry`：查看应用统一日志。
 - `./script/build_and_run.sh --verify`：启动并验证进程存在。
+- `./script/build_and_run.sh --release`：生成经过优化的发布版应用包。
 
 ## 美元金额说明
 
-界面中的美元金额是模拟换算，不是账单或实际扣费。1.0.2 使用每 100 万 Token `$7.875` 的固定混合估算系数；由于本机接口不区分输入、缓存输入和输出 Token，实际费用会随模型、缓存比例、输入输出结构和套餐规则变化。
+界面中的美元金额是模拟换算，不是账单或实际扣费。1.1.0 使用每 100 万 Token `$7.875` 的固定混合估算系数；由于本机接口不区分输入、缓存输入和输出 Token，实际费用会随模型、缓存比例、输入输出结构和套餐规则变化。
 
 ## 隐私
 
-- 数据处理全部在本机完成。
+- 默认情况下数据处理全部在本机完成。
 - 不需要在应用内登录。
 - 不保存或上传 Codex 认证信息。
 - 不上传会话内容或 Token 事件。
+- 只有用户主动启用跨平台同步时，才会把加密后的额度、Token 汇总和图表快照发送到用户配置的中转服务。
 - 仅在用户点击“检查更新”时访问 GitHub。
 
 ## 许可证

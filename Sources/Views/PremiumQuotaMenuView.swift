@@ -140,18 +140,22 @@ struct PremiumQuotaMenuView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            VStack(spacing: 0) {
-                Color.clear
-                    .frame(height: 62)
-                    .accessibilityHidden(true)
-                Divider().opacity(0.34)
-                pageContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        GeometryReader { host in
+            ZStack(alignment: .top) {
+                VStack(spacing: 0) {
+                    Color.clear
+                        .frame(height: 62)
+                        .accessibilityHidden(true)
+                    Divider().opacity(0.34)
+                    pageContent
+                        .frame(maxWidth: .infinity)
+                        .frame(height: max(0, host.size.height - 63), alignment: .top)
+                }
+                .frame(width: host.size.width, height: host.size.height, alignment: .top)
 
-            header
+                header
+            }
+            .frame(width: host.size.width, height: host.size.height, alignment: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background {
@@ -304,20 +308,38 @@ struct PremiumQuotaMenuView: View {
     }
 
     private var overview: some View {
-        VStack(spacing: 0) {
-            hero
-            periodPicker
-                .padding(.top, 7)
-            quotaSummary
-                .padding(.top, 13)
-            Spacer(minLength: 8)
-            primaryActions
-            footer
+        GeometryReader { viewport in
+            let controlsHeight: CGFloat = 36 + 8 + 24 + 10 + PanelLayoutMetrics.bottomInset
+            VStack(spacing: 0) {
+                ScrollView(.vertical) {
+                    VStack(spacing: 0) {
+                        hero
+                        periodPicker
+                            .padding(.top, 7)
+                        quotaSummary
+                            .padding(.top, 13)
+                        ResetCreditCountdownView(
+                            summary: store.resetCredits,
+                            isRefreshing: store.isRefreshing,
+                            accent: accent,
+                            primaryText: primaryText,
+                            secondaryText: secondaryText,
+                            tertiaryText: tertiaryText
+                        )
+                        .padding(.top, 16)
+                    }
+                    .padding(.top, PanelLayoutMetrics.topInset)
+                    .padding(.bottom, 8)
+                }
+                .frame(height: max(0, viewport.size.height - controlsHeight))
+                primaryActions
+                    .padding(.top, 8)
+                footer
+            }
+            .padding(.horizontal, PanelLayoutMetrics.horizontalInset)
+            .padding(.bottom, PanelLayoutMetrics.bottomInset)
+            .frame(width: viewport.size.width, height: viewport.size.height, alignment: .top)
         }
-        .padding(.horizontal, PanelLayoutMetrics.horizontalInset)
-        .padding(.top, PanelLayoutMetrics.topInset)
-        .padding(.bottom, PanelLayoutMetrics.bottomInset)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var hero: some View {
@@ -630,8 +652,8 @@ struct PremiumQuotaMenuView: View {
 
     private var preferredHeight: CGFloat {
         switch page {
-        case .overview: 600
-        case .statusBarDisplay: 570
+        case .overview: PanelLayoutMetrics.overviewHeight
+        case .statusBarDisplay: 730
         case .customLabels: 520
         case .about: 470
         }

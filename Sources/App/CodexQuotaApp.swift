@@ -1,10 +1,17 @@
-import SwiftUI
+import AppKit
 
 @main
-struct CodexQuotaApp: App {
-    @NSApplicationDelegateAdaptor(StatusBarController.self) private var statusBarController
+enum CodexQuotaApp {
+    @MainActor
+    static func main() {
+        let application = NSApplication.shared
+        let statusBarController = StatusBarController()
+        application.delegate = statusBarController
+        application.setActivationPolicy(.accessory)
 
-    var body: some Scene {
-        Settings { EmptyView() }
+        // The menu-bar controller owns the UI; no placeholder Settings scene is needed.
+        withExtendedLifetime(statusBarController) {
+            application.run()
+        }
     }
 }

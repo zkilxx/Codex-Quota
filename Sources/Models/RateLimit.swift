@@ -1,6 +1,6 @@
 import Foundation
 
-struct RateLimitWindow: Decodable, Sendable {
+struct RateLimitWindow: Codable, Sendable {
     let resetsAt: Int64?
     let usedPercent: Int
     let windowDurationMins: Int64?
@@ -9,7 +9,7 @@ struct RateLimitWindow: Decodable, Sendable {
     var resetDate: Date? { resetsAt.map { Date(timeIntervalSince1970: TimeInterval($0)) } }
 }
 
-struct RateLimitSnapshot: Decodable, Sendable {
+struct RateLimitSnapshot: Codable, Sendable {
     let limitName: String?
     let planType: String?
     let primary: RateLimitWindow?
@@ -19,6 +19,7 @@ struct RateLimitSnapshot: Decodable, Sendable {
 struct RateLimitResponse: Decodable, Sendable {
     let rateLimits: RateLimitSnapshot
     let rateLimitsByLimitId: [String: RateLimitSnapshot]?
+    let rateLimitResetCredits: RateLimitResetCreditsSummary?
 
     var preferredSnapshot: RateLimitSnapshot {
         rateLimitsByLimitId?["codex"] ?? rateLimits
@@ -75,4 +76,5 @@ struct CodexAccountSnapshot: Sendable {
     let yearTokens: Int64
     let hourlyUsageBuckets: [TokenUsageBucket]
     let dailyUsageBuckets: [TokenUsageBucket]
+    let resetCredits: RateLimitResetCreditsSummary?
 }

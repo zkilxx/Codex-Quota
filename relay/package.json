@@ -1,0 +1,14 @@
+{
+  "name": "codex-quota-sync-relay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Opaque encrypted snapshot relay for Codex Quota",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js",
+    "test": "node --test server.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

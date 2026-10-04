@@ -4,29 +4,34 @@ set -euo pipefail
 MODE="${1:-run}"
 APP_NAME="CodexQuota"
 BUNDLE_ID="com.local.codexquota"
-APP_VERSION="1.0.2"
-BUILD_NUMBER="2"
+APP_VERSION="1.1.0"
+BUILD_NUMBER="3"
+CONFIGURATION="debug"
+case "$MODE" in
+  --release|release) CONFIGURATION="release" ;;
+esac
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
-APP_MACOS="$APP_BUNDLE/Contents/MacOS"
-APP_RESOURCES="$APP_BUNDLE/Contents/Resources"
 ICON_SOURCE="$ROOT_DIR/icons/CodexQuota.icns"
 MODULE_CACHE_DIR="${TMPDIR:-/tmp}/codex-quota-swift-module-cache"
-SCRATCH_DIR="${TMPDIR:-/tmp}/codex-quota-swift-build"
-SWIFT_BUILD_ARGS=(--scratch-path "$SCRATCH_DIR" -Xswiftc -module-cache-path -Xswiftc "$MODULE_CACHE_DIR")
+SCRATCH_DIR="${TMPDIR:-/tmp}/codex-quota-swift-build-$APP_VERSION-$CONFIGURATION"
+STAGED_APP_BUNDLE="$SCRATCH_DIR/bundle/$APP_NAME.app"
+APP_MACOS="$STAGED_APP_BUNDLE/Contents/MacOS"
+APP_RESOURCES="$STAGED_APP_BUNDLE/Contents/Resources"
+SWIFT_BUILD_ARGS=(-c "$CONFIGURATION" --scratch-path "$SCRATCH_DIR" -Xswiftc -module-cache-path -Xswiftc "$MODULE_CACHE_DIR")
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 swift build "${SWIFT_BUILD_ARGS[@]}"
 BUILD_BINARY="$(swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path)/$APP_NAME"
 
 mkdir -p "$APP_MACOS"
-cp "$BUILD_BINARY" "$APP_MACOS/$APP_NAME"
+cp -X "$BUILD_BINARY" "$APP_MACOS/$APP_NAME"
 chmod +x "$APP_MACOS/$APP_NAME"
 mkdir -p "$APP_RESOURCES"
-cp "$ICON_SOURCE" "$APP_RESOURCES/CodexQuota.icns"
+cp -X "$ICON_SOURCE" "$APP_RESOURCES/CodexQuota.icns"
 
-cat >"$APP_BUNDLE/Contents/Info.plist" <<PLIST
+cat >"$STAGED_APP_BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -44,11 +49,18 @@ cat >"$APP_BUNDLE/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 
+# Sign outside managed workspace folders so Finder metadata cannot race codesign.
+/usr/bin/codesign --force --sign - "$STAGED_APP_BUNDLE"
+/usr/bin/codesign --verify --strict "$STAGED_APP_BUNDLE"
+mkdir -p "$DIST_DIR"
+/usr/bin/ditto --norsrc --noextattr "$STAGED_APP_BUNDLE" "$APP_BUNDLE"
+
 case "$MODE" in
+  --release|release) echo "Release bundle: $APP_BUNDLE" ;;
   run) /usr/bin/open -n "$APP_BUNDLE" ;;
   --debug|debug) lldb -- "$APP_MACOS/$APP_NAME" ;;
   --logs|logs) /usr/bin/open -n "$APP_BUNDLE"; /usr/bin/log stream --info --style compact --predicate "process == \"$APP_NAME\"" ;;
   --telemetry|telemetry) /usr/bin/open -n "$APP_BUNDLE"; /usr/bin/log stream --info --style compact --predicate "subsystem == \"$BUNDLE_ID\"" ;;
   --verify|verify) /usr/bin/open -n "$APP_BUNDLE"; sleep 1; pgrep -x "$APP_NAME" >/dev/null ;;
-  *) echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2; exit 2 ;;
+  *) echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--release]" >&2; exit 2 ;;
 esac

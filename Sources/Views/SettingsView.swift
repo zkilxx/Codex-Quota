@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
@@ -12,9 +13,14 @@ struct SettingsView: View {
     @AppStorage("showWeeklyQuota") private var showWeeklyQuota = true
     @AppStorage("showMonthlyQuota") private var showMonthlyQuota = true
     @AppStorage("showResetCountdown") private var showResetCountdown = true
+    @AppStorage("showResetCreditCountdown") private var showResetCreditCountdown = false
     @AppStorage("useCustomLabels") private var useCustomLabels = false
+    @AppStorage("remoteSyncEnabled") private var remoteSyncEnabled = false
+    @AppStorage("remoteSyncEndpoint") private var remoteSyncEndpoint = ""
     @Environment(\.colorScheme) private var colorScheme
     @State private var displayedAppearance: InterfaceAppearance
+    @State private var remoteSyncCode = ""
+    @State private var remoteSyncMessage = ""
 
     private let accent = Color(red: 0.04, green: 0.67, blue: 0.46)
     private let ink = Color(red: 0.04, green: 0.12, blue: 0.24)
@@ -29,33 +35,35 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            VStack(spacing: 0) {
-                appearanceSection
-                Divider().opacity(0.28).padding(.horizontal, 13)
-                visibleItemsSection
-                Divider().opacity(0.28).padding(.horizontal, 13)
-                optionsSection
-            }
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 15, style: .continuous)
-                    .strokeBorder(surfaceBorder, lineWidth: 0.7)
-            }
+        ScrollView(.vertical) {
+            VStack(spacing: 16) {
+                VStack(spacing: 0) {
+                    appearanceSection
+                    Divider().opacity(0.28).padding(.horizontal, 13)
+                    visibleItemsSection
+                    Divider().opacity(0.28).padding(.horizontal, 13)
+                    optionsSection
+                }
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .strokeBorder(surfaceBorder, lineWidth: 0.7)
+                }
 
-            Text("所有更改都会立即应用到菜单栏和程序面板。")
-                .font(.caption2)
-                .foregroundStyle(secondaryText)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 4)
-
-            Spacer(minLength: 0)
+                Text("所有更改都会立即应用到菜单栏和程序面板。")
+                    .font(.caption2)
+                    .foregroundStyle(secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
+            }
+            .frame(maxWidth: .infinity, alignment: .top)
         }
         .onChange(of: interfaceAppearance) { _, newValue in
             guard let appearance = InterfaceAppearance(rawValue: newValue),
                   appearance != displayedAppearance else { return }
             withAnimation(.smooth(duration: 0.34)) { displayedAppearance = appearance }
         }
+        .onAppear(perform: loadRemoteSyncCode)
     }
 
     private var appearanceSection: some View {
@@ -133,6 +141,28 @@ struct SettingsView: View {
 
             Divider().opacity(0.3).padding(.leading, 12)
 
+            fullWidthToggle(
+                title: "显示重置卡倒计时",
+                subtitle: "在菜单栏显示最近到期的一张完全重置卡",
+                isOn: $showResetCreditCountdown
+            )
+
+            Divider().opacity(0.3).padding(.leading, 12)
+
+            fullWidthToggle(
+                title: "跨平台多端同步",
+                subtitle: "通过端到端加密中转与 Android 等设备共享快照",
+                isOn: $remoteSyncEnabled
+            )
+
+            if remoteSyncEnabled {
+                Divider().opacity(0.3).padding(.leading, 12)
+                remoteSyncConfigurationSection
+                Divider().opacity(0.3).padding(.leading, 12)
+            } else {
+                Divider().opacity(0.3).padding(.leading, 12)
+            }
+
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("状态栏文字")
@@ -169,6 +199,75 @@ struct SettingsView: View {
             .opacity(useCustomLabels ? 1 : 0.42)
             .animation(.easeInOut(duration: 0.24), value: useCustomLabels)
         }
+    }
+
+    private var remoteSyncConfigurationSection: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("同步服务")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(accent)
+
+            TextField("https://sync.example.com", text: $remoteSyncEndpoint)
+                .textFieldStyle(.roundedBorder)
+                .font(.caption.monospaced())
+
+            HStack(spacing: 7) {
+                SecureField("43 位同步码", text: $remoteSyncCode)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption.monospaced())
+
+                Button("生成", action: generateRemoteSyncCode)
+                Button("保存", action: saveRemoteSyncCode)
+                Button("复制", action: copyRemoteSyncCode)
+            }
+            .buttonStyle(.borderless)
+            .font(.caption.weight(.medium))
+
+            Text(remoteSyncMessage.isEmpty ? "同步码只保存在系统钥匙串；中转服务只能看到密文。" : remoteSyncMessage)
+                .font(.caption2)
+                .foregroundStyle(remoteSyncMessage.hasPrefix("错误") ? Color.red.opacity(0.9) : secondaryText)
+                .lineLimit(2)
+        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 12)
+    }
+
+    private func loadRemoteSyncCode() {
+        do {
+            remoteSyncCode = try RemoteSyncConfigurationStore.loadSyncCode() ?? ""
+        } catch {
+            remoteSyncMessage = "错误：\(error.localizedDescription)"
+        }
+    }
+
+    private func generateRemoteSyncCode() {
+        do {
+            let code = try RemoteSyncConfigurationStore.generateSyncCode()
+            try RemoteSyncConfigurationStore.saveSyncCode(code)
+            remoteSyncCode = code
+            remoteSyncMessage = "已生成并保存；请复制到其他设备。"
+        } catch {
+            remoteSyncMessage = "错误：\(error.localizedDescription)"
+        }
+    }
+
+    private func saveRemoteSyncCode() {
+        do {
+            try RemoteSyncConfigurationStore.saveSyncCode(remoteSyncCode)
+            remoteSyncMessage = "同步码已保存到钥匙串。"
+        } catch {
+            remoteSyncMessage = "错误：\(error.localizedDescription)"
+        }
+    }
+
+    private func copyRemoteSyncCode() {
+        guard !remoteSyncCode.isEmpty else {
+            remoteSyncMessage = "错误：请先生成或输入同步码。"
+            return
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(remoteSyncCode, forType: .string)
+        remoteSyncMessage = "同步码已复制。"
     }
 
     private func sectionTitle(_ title: String) -> some View {

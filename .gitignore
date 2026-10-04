@@ -4,6 +4,14 @@
 dist/
 outputs/
 work/
+audit/
+design-qa.md
+icons/*.iconset/
+icons/icon1024.png
+relay/data/
+relay/.data/
+assets/codex-quota-interface.png
+assets/codex-quota-overview-dark.png
 assets/codex-quota-hero.png
 assets/codex-quota-statusbar.png
 assets/codex-quota-statusbar-v2.png

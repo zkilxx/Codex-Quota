@@ -36,7 +36,7 @@ actor CodexRateLimitClient {
         }
 
         try send(["id": 1, "method": "initialize", "params": [
-            "clientInfo": ["name": "CodexQuota", "version": "1.0.2"]
+            "clientInfo": ["name": "CodexQuota", "version": "1.1.0"]
         ]], to: input.fileHandleForWriting)
         _ = try readResponse(id: 1, from: output.fileHandleForReading)
 
@@ -44,7 +44,8 @@ actor CodexRateLimitClient {
         let response = try readResponse(id: 2, from: output.fileHandleForReading)
         guard let result = response["result"] else { throw CodexRateLimitError.invalidResponse }
         let data = try JSONSerialization.data(withJSONObject: result)
-        let rateLimits = try JSONDecoder().decode(RateLimitResponse.self, from: data).preferredSnapshot
+        let rateLimitResponse = try JSONDecoder().decode(RateLimitResponse.self, from: data)
+        let rateLimits = rateLimitResponse.preferredSnapshot
 
         try send(["id": 3, "method": "account/usage/read", "params": NSNull()], to: input.fileHandleForWriting)
         let usageResponse = try readResponse(id: 3, from: output.fileHandleForReading)
@@ -63,7 +64,8 @@ actor CodexRateLimitClient {
             monthTokens: totals.month,
             yearTokens: totals.year,
             hourlyUsageBuckets: localUsage.hourlyBuckets,
-            dailyUsageBuckets: dailyBuckets
+            dailyUsageBuckets: dailyBuckets,
+            resetCredits: rateLimitResponse.rateLimitResetCredits
         )
     }
 
@@ -79,11 +81,17 @@ actor CodexRateLimitClient {
         }
 
         let localBaseline = Int64(defaults.integer(forKey: "liveTokenLocalToday"))
-        let localDelta = max(0, localTodayTokens - localBaseline)
-        let today = max(usage.todayTokens, Int64(defaults.integer(forKey: "liveTokenServerToday")) + localDelta)
-        let month = max(usage.monthTokens, Int64(defaults.integer(forKey: "liveTokenServerMonth")) + localDelta)
-        let year = max(usage.yearTokens, Int64(defaults.integer(forKey: "liveTokenServerYear")) + localDelta)
-        return (today, month, year)
+        let totals = TokenUsageReconciler.reconcile(
+            server: .init(today: usage.todayTokens, month: usage.monthTokens, year: usage.yearTokens),
+            baseline: .init(
+                today: Int64(defaults.integer(forKey: "liveTokenServerToday")),
+                month: Int64(defaults.integer(forKey: "liveTokenServerMonth")),
+                year: Int64(defaults.integer(forKey: "liveTokenServerYear"))
+            ),
+            localTodayTokens: localTodayTokens,
+            localBaseline: localBaseline
+        )
+        return (totals.today, totals.month, totals.year)
     }
 
     private static var dayKey: String {
@@ -120,12 +128,7 @@ actor CodexRateLimitClient {
     }
 
     private func codexExecutable() throws -> String {
-        let candidates = [
-            "/Applications/ChatGPT.app/Contents/Resources/codex",
-            "/usr/local/bin/codex",
-            "/opt/homebrew/bin/codex"
-        ]
-        if let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) { return path }
+        if let path = CodexExecutableLocator.resolve() { return path }
         throw CodexRateLimitError.executableNotFound
     }
 

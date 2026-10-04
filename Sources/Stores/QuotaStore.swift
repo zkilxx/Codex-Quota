@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-struct UsageSample: Identifiable, Sendable {
+struct UsageSample: Identifiable, Codable, Sendable {
     var id: Date { date }
     let date: Date
     let tokens: Int64
@@ -11,21 +11,60 @@ struct UsageSample: Identifiable, Sendable {
 @MainActor
 final class QuotaStore {
     private let client = CodexRateLimitClient()
+    private let remoteSync = RemoteSyncService()
     private var timer: Timer?
+    private var remoteSyncConfiguration: RemoteSyncConfiguration?
+    private let deviceID: String
 
     var snapshot: RateLimitSnapshot?
+    var resetCredits: RateLimitResetCreditsSummary?
     var todayTokens: Int64?
     var monthTokens: Int64?
     var yearTokens: Int64?
     var lastUpdated: Date?
     var errorMessage: String?
+    var remoteSyncState: RemoteSyncState = .disabled
+    var dataSourceDescription = "本机"
     var isRefreshing = false
     var todayHistory: [UsageSample] = []
     var monthHistory: [UsageSample] = []
     var yearHistory: [UsageSample] = []
     var onUpdate: (() -> Void)?
 
-    init() { startRefreshing() }
+    init() {
+        let defaults = UserDefaults.standard
+        if let existing = defaults.string(forKey: "remoteSyncDeviceID.v1"), !existing.isEmpty {
+            deviceID = existing
+        } else {
+            let value = UUID().uuidString.lowercased()
+            defaults.set(value, forKey: "remoteSyncDeviceID.v1")
+            deviceID = value
+        }
+        reloadRemoteSyncConfiguration()
+        startRefreshing()
+    }
+
+    func reloadRemoteSyncConfiguration() {
+        do {
+            let configuration = try RemoteSyncConfigurationStore.load()
+            guard let configuration else {
+                remoteSyncConfiguration = nil
+                remoteSyncState = .disabled
+                onUpdate?()
+                return
+            }
+            guard configuration != remoteSyncConfiguration else { return }
+            remoteSyncConfiguration = configuration
+            remoteSyncState = .syncing
+            Task { [weak self] in
+                await self?.pullRemoteSnapshot(configuration: configuration)
+            }
+        } catch {
+            remoteSyncConfiguration = nil
+            remoteSyncState = .unavailable(error.localizedDescription)
+        }
+        onUpdate?()
+    }
 
     func startRefreshing() {
         refresh()
@@ -42,8 +81,12 @@ final class QuotaStore {
         onUpdate?()
         Task {
             do {
+                if let configuration = remoteSyncConfiguration {
+                    await pullRemoteSnapshot(configuration: configuration)
+                }
                 let account = try await client.fetch()
                 self.snapshot = account.rateLimits
+                self.resetCredits = account.resetCredits
                 self.todayTokens = account.todayTokens
                 self.monthTokens = account.monthTokens
                 self.yearTokens = account.yearTokens
@@ -56,14 +99,81 @@ final class QuotaStore {
                 self.yearHistory = self.makeMonthlyHistory(
                     buckets: account.dailyUsageBuckets
                 )
-                self.lastUpdated = .now
+                let updatedAt = Date.now
+                self.lastUpdated = updatedAt
                 self.errorMessage = nil
+                self.dataSourceDescription = "本机"
+                await self.publishCurrentSnapshot(updatedAt: updatedAt)
             } catch {
                 self.errorMessage = error.localizedDescription
+                if let configuration = remoteSyncConfiguration {
+                    await pullRemoteSnapshot(configuration: configuration)
+                }
             }
             self.isRefreshing = false
             self.onUpdate?()
         }
+    }
+
+    private func publishCurrentSnapshot(updatedAt: Date) async {
+        guard let configuration = remoteSyncConfiguration, let snapshot else { return }
+        let remote = SyncedQuotaSnapshot(
+            updatedAt: updatedAt,
+            sourceDeviceID: deviceID,
+            rateLimits: snapshot,
+            todayTokens: todayTokens,
+            monthTokens: monthTokens,
+            yearTokens: yearTokens,
+            todayHistory: todayHistory,
+            monthHistory: monthHistory,
+            yearHistory: yearHistory,
+            resetCredits: resetCredits
+        )
+        remoteSyncState = .syncing
+        do {
+            try await remoteSync.push(remote, configuration: configuration)
+            remoteSyncState = .synced(updatedAt)
+        } catch RemoteSyncError.conflict {
+            await pullRemoteSnapshot(configuration: configuration)
+        } catch {
+            remoteSyncState = .unavailable(error.localizedDescription)
+        }
+    }
+
+    private func pullRemoteSnapshot(configuration: RemoteSyncConfiguration) async {
+        remoteSyncState = .syncing
+        do {
+            guard let remote = try await remoteSync.pull(configuration: configuration) else {
+                remoteSyncState = .ready
+                onUpdate?()
+                return
+            }
+            applyRemoteSnapshot(remote)
+            remoteSyncState = .synced(remote.updatedAt)
+        } catch {
+            remoteSyncState = .unavailable(error.localizedDescription)
+        }
+        onUpdate?()
+    }
+
+    private func applyRemoteSnapshot(_ remote: SyncedQuotaSnapshot) {
+        guard RemoteQuotaConflictResolver.shouldApply(
+                  remoteUpdatedAt: remote.updatedAt,
+                  localUpdatedAt: lastUpdated
+              ) else { return }
+
+        snapshot = remote.rateLimits
+        resetCredits = remote.resetCredits
+        todayTokens = remote.todayTokens
+        monthTokens = remote.monthTokens
+        yearTokens = remote.yearTokens
+        todayHistory = remote.todayHistory
+        monthHistory = remote.monthHistory
+        yearHistory = remote.yearHistory
+        lastUpdated = remote.updatedAt
+        errorMessage = nil
+        dataSourceDescription = "多端同步"
+        onUpdate?()
     }
 
     private func makeHourlyHistory(buckets: [TokenUsageBucket]) -> [UsageSample] {
