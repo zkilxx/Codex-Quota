@@ -324,7 +324,8 @@ struct PremiumQuotaMenuView: View {
                             accent: accent,
                             primaryText: primaryText,
                             secondaryText: secondaryText,
-                            tertiaryText: tertiaryText
+                            tertiaryText: tertiaryText,
+                            automationMessage: store.resetCreditAutomationMessage
                         )
                         .padding(.top, 16)
                     }

@@ -9,14 +9,22 @@
 <h3 align="center">Keep Codex usage, quota, and reset times in the macOS menu bar</h3>
 
 <p align="center">
-  macOS 14+ · SwiftUI · v1.1.0 · Apache-2.0
+  macOS 14+ · SwiftUI · v1.1.1 · Apache-2.0
 </p>
 
 <p align="center">
-  <img src="assets/codex-quota-overview-v1.1.0.png" alt="Codex Quota 1.1.0 overview in Dark Mode" width="420" />
+  <img src="assets/codex-quota-overview-v1.1.1.png" alt="Codex Quota 1.1.1 overview in Dark Mode" width="420" />
 </p>
 
 Codex Quota is a lightweight native macOS menu bar utility. It reads quota and token usage from the locally signed-in Codex service and presents live data in a translucent frosted-glass panel. No additional sign-in is required. Data stays local by default; experimental cross-platform sync uploads only end-to-end encrypted quota snapshots, never account credentials or conversation content.
+
+## What's new in 1.1.1
+
+- One reminder in each reset credit's final 10 minutes and a confirmation prompt in its final 3 minutes, enabled by default with independent switches.
+- A card is consumed only after “Confirm use.” Declining, closing, leaving the prompt unanswered, or expiration never consumes the card, and the prompt is not repeated.
+- Revalidates the same card after approval, reuses its request identifier for retries, and reports results in the panel and menu bar tooltip.
+- Custom reset credit labels; an empty label shows only the countdown.
+- Prevents an earlier regular refresh from overwriting quota state updated after reset credit consumption.
 
 ## What's new in 1.1.0
 
@@ -46,8 +54,8 @@ Codex Quota is a lightweight native macOS menu bar utility. It reads quota and t
     <td align="center"><strong>About and update check</strong></td>
   </tr>
   <tr>
-    <td><img src="assets/codex-quota-settings-v1.1.0.png" alt="Codex Quota 1.1.0 Settings in Dark Mode" width="390" /></td>
-    <td><img src="assets/codex-quota-about-v1.1.0.png" alt="Codex Quota 1.1.0 About page in Dark Mode" width="390" /></td>
+    <td><img src="assets/codex-quota-settings-v1.1.1.png" alt="Codex Quota 1.1.1 Settings in Dark Mode" width="390" /></td>
+    <td><img src="assets/codex-quota-about-v1.1.1.png" alt="Codex Quota 1.1.1 About page in Dark Mode" width="390" /></td>
   </tr>
 </table>
 
@@ -75,12 +83,14 @@ Codex Quota is a lightweight native macOS menu bar utility. It reads quota and t
 - Highlights credits expiring within 24 hours in orange and removes expired credits from the available list.
 - Preserves the available count when details are unavailable and supports scrolling through additional credits.
 - Enable “Show reset credit countdown” in Settings to show the earliest-expiring available credit in the menu bar. This is off by default and switches to the next available credit on expiration.
+- By default, each card triggers one reminder in its last 10 minutes and asks for confirmation in its last 3 minutes. Each card is consumed only after you approve it. Both options can be disabled separately from the menu bar display.
+- Allow notifications and keep the app running. After your approval, the card is checked again before consumption; retries reuse a persisted idempotency key, and the panel reports confirmed success or failure. Unapproved cards are never consumed.
 
 ### Menu bar and appearance
 
 - Optionally show daily, monthly, and yearly token totals in the menu bar.
 - Independently show or hide quota windows and reset countdowns.
-- Use default labels or customize the app prefix, token labels, and quota labels.
+- Use default labels or customize the app prefix, token labels, quota labels, and reset credit label. Empty labels show only the corresponding value.
 - Choose System, Light, or Dark appearance.
 - Native Gaussian blur and an adaptive 80% color layer keep the panel readable while preserving desktop translucency.
 - Smooth page, segmented-control, and chart transitions keep the popover anchored to its menu bar item.
@@ -146,7 +156,7 @@ Optional modes:
 
 ## About the USD estimate
 
-The USD amount is a simulation, not a bill or an actual charge. Version 1.1.0 uses a fixed blended estimate of `$7.875` per one million tokens. The local interface does not separate input, cached input, and output tokens, so actual cost varies by model, cache ratio, input/output mix, and plan rules.
+The USD amount is a simulation, not a bill or an actual charge. Version 1.1.1 uses a fixed blended estimate of `$7.875` per one million tokens. The local interface does not separate input, cached input, and output tokens, so actual cost varies by model, cache ratio, input/output mix, and plan rules.
 
 ## Privacy
 

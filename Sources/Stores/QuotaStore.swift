@@ -15,9 +15,12 @@ final class QuotaStore {
     private var timer: Timer?
     private var remoteSyncConfiguration: RemoteSyncConfiguration?
     private let deviceID: String
+    private let servicesEnabled: Bool
+    private var resetCreditSnapshotVersion = 0
 
     var snapshot: RateLimitSnapshot?
     var resetCredits: RateLimitResetCreditsSummary?
+    var resetCreditAutomationMessage: String?
     var todayTokens: Int64?
     var monthTokens: Int64?
     var yearTokens: Int64?
@@ -31,7 +34,12 @@ final class QuotaStore {
     var yearHistory: [UsageSample] = []
     var onUpdate: (() -> Void)?
 
-    init() {
+    init(startServices: Bool = true) {
+        servicesEnabled = startServices
+        if !startServices {
+            deviceID = UUID().uuidString.lowercased()
+            return
+        }
         let defaults = UserDefaults.standard
         if let existing = defaults.string(forKey: "remoteSyncDeviceID.v1"), !existing.isEmpty {
             deviceID = existing
@@ -40,8 +48,10 @@ final class QuotaStore {
             defaults.set(value, forKey: "remoteSyncDeviceID.v1")
             deviceID = value
         }
-        reloadRemoteSyncConfiguration()
-        startRefreshing()
+        if startServices {
+            reloadRemoteSyncConfiguration()
+            startRefreshing()
+        }
     }
 
     func reloadRemoteSyncConfiguration() {
@@ -76,6 +86,7 @@ final class QuotaStore {
     }
 
     func refresh() {
+        guard servicesEnabled else { return }
         guard !isRefreshing else { return }
         isRefreshing = true
         onUpdate?()
@@ -84,9 +95,12 @@ final class QuotaStore {
                 if let configuration = remoteSyncConfiguration {
                     await pullRemoteSnapshot(configuration: configuration)
                 }
+                let version = self.resetCreditSnapshotVersion
                 let account = try await client.fetch()
-                self.snapshot = account.rateLimits
-                self.resetCredits = account.resetCredits
+                if version == self.resetCreditSnapshotVersion {
+                    self.snapshot = account.rateLimits
+                    self.resetCredits = account.resetCredits
+                }
                 self.todayTokens = account.todayTokens
                 self.monthTokens = account.monthTokens
                 self.yearTokens = account.yearTokens
@@ -138,6 +152,25 @@ final class QuotaStore {
         } catch {
             remoteSyncState = .unavailable(error.localizedDescription)
         }
+    }
+
+    func applyResetCreditSnapshot(_ response: RateLimitResponse) {
+        resetCreditSnapshotVersion += 1
+        snapshot = response.preferredSnapshot
+        resetCredits = response.rateLimitResetCredits
+        onUpdate?()
+    }
+
+    func recordConsumedResetCredit(id: String) {
+        guard let summary = resetCredits,
+              summary.credits?.contains(where: { $0.id == id && $0.status == "available" }) == true else { return }
+        let credits = summary.credits?.map { card in
+            guard card.id == id else { return card }
+            return RateLimitResetCredit(id: card.id, resetType: card.resetType, status: "redeemed", grantedAt: card.grantedAt, expiresAt: card.expiresAt, title: card.title, description: card.description)
+        }
+        resetCreditSnapshotVersion += 1
+        resetCredits = RateLimitResetCreditsSummary(availableCount: max(0, summary.availableCount - 1), credits: credits)
+        onUpdate?()
     }
 
     private func pullRemoteSnapshot(configuration: RemoteSyncConfiguration) async {

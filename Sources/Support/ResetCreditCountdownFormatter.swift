@@ -1,9 +1,10 @@
 import Foundation
 
 enum ResetCreditCountdownFormatter {
-    static func menuBarText(summary: RateLimitResetCreditsSummary?, now: Date) -> String? {
+    static func menuBarText(summary: RateLimitResetCreditsSummary?, now: Date, label: String = "重置卡") -> String? {
         guard let credit = summary?.availableFullResetCredits(at: now).first else { return nil }
-        return "重置卡 \(remainingText(until: credit.expirationDate, now: now))"
+        let countdown = remainingText(until: credit.expirationDate, now: now)
+        return label.isEmpty ? countdown : "\(label) \(countdown)"
     }
 
     static func remainingText(until expiration: Date?, now: Date) -> String {

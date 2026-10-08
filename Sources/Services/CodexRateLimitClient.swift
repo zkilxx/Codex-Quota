@@ -36,7 +36,7 @@ actor CodexRateLimitClient {
         }
 
         try send(["id": 1, "method": "initialize", "params": [
-            "clientInfo": ["name": "CodexQuota", "version": "1.1.0"]
+            "clientInfo": ["name": "CodexQuota", "version": "1.1.1"]
         ]], to: input.fileHandleForWriting)
         _ = try readResponse(id: 1, from: output.fileHandleForReading)
 

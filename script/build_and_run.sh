@@ -4,8 +4,8 @@ set -euo pipefail
 MODE="${1:-run}"
 APP_NAME="CodexQuota"
 BUNDLE_ID="com.local.codexquota"
-APP_VERSION="1.1.0"
-BUILD_NUMBER="3"
+APP_VERSION="1.1.1"
+BUILD_NUMBER="4"
 CONFIGURATION="debug"
 case "$MODE" in
   --release|release) CONFIGURATION="release" ;;

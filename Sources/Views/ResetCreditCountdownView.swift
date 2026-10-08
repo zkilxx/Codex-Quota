@@ -7,6 +7,25 @@ struct ResetCreditCountdownView: View {
     let primaryText: Color
     let secondaryText: Color
     let tertiaryText: Color
+    let automationMessage: String?
+
+    init(
+        summary: RateLimitResetCreditsSummary?,
+        isRefreshing: Bool,
+        accent: Color,
+        primaryText: Color,
+        secondaryText: Color,
+        tertiaryText: Color,
+        automationMessage: String? = nil
+    ) {
+        self.summary = summary
+        self.isRefreshing = isRefreshing
+        self.accent = accent
+        self.primaryText = primaryText
+        self.secondaryText = secondaryText
+        self.tertiaryText = tertiaryText
+        self.automationMessage = automationMessage
+    }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { timeline in
@@ -39,6 +58,14 @@ struct ResetCreditCountdownView: View {
                     if missingCount > 0 {
                         emptyText("另有 \(missingCount) 张卡暂未提供到期明细")
                     }
+                }
+
+                if let automationMessage, !automationMessage.isEmpty {
+                    Text(automationMessage)
+                        .font(.caption2)
+                        .foregroundStyle(Color.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 3)
                 }
             }
         }

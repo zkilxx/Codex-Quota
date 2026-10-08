@@ -14,6 +14,8 @@ struct SettingsView: View {
     @AppStorage("showMonthlyQuota") private var showMonthlyQuota = true
     @AppStorage("showResetCountdown") private var showResetCountdown = true
     @AppStorage("showResetCreditCountdown") private var showResetCreditCountdown = false
+    @AppStorage("remindExpiringResetCredits") private var remindExpiringResetCredits = true
+    @AppStorage("autoUseExpiringResetCredits") private var autoUseExpiringResetCredits = true
     @AppStorage("useCustomLabels") private var useCustomLabels = false
     @AppStorage("remoteSyncEnabled") private var remoteSyncEnabled = false
     @AppStorage("remoteSyncEndpoint") private var remoteSyncEndpoint = ""
@@ -146,6 +148,29 @@ struct SettingsView: View {
                 subtitle: "在菜单栏显示最近到期的一张完全重置卡",
                 isOn: $showResetCreditCountdown
             )
+
+            Divider().opacity(0.3).padding(.leading, 12)
+
+            fullWidthToggle(
+                title: "到期前 10 分钟提醒",
+                subtitle: "每张卡提醒一次，请允许系统通知",
+                isOn: $remindExpiringResetCredits
+            )
+
+            Divider().opacity(0.3).padding(.leading, 12)
+
+            fullWidthToggle(
+                title: "到期前 3 分钟询问使用",
+                subtitle: "每张卡使用前都需你确认",
+                isOn: $autoUseExpiringResetCredits
+            )
+
+            Text("需保持应用运行；使用结果会在额度面板显示。")
+                .font(.caption2)
+                .foregroundStyle(secondaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 13)
+                .padding(.bottom, 10)
 
             Divider().opacity(0.3).padding(.leading, 12)
 
@@ -433,6 +458,7 @@ struct CustomLabelsView: View {
     @AppStorage("customFiveHourLabel") private var customFiveHourLabel = "5时"
     @AppStorage("customWeekLabel") private var customWeekLabel = "1周"
     @AppStorage("customMonthQuotaLabel") private var customMonthQuotaLabel = "1月"
+    @AppStorage("customResetCreditLabel") private var customResetCreditLabel = "重置卡"
     @Environment(\.colorScheme) private var colorScheme
 
     private let ink = Color(red: 0.04, green: 0.12, blue: 0.24)
@@ -453,6 +479,8 @@ struct CustomLabelsView: View {
                 labelField("5 小时", text: $customFiveHourLabel, prompt: "5时")
                 labelField("1 周", text: $customWeekLabel, prompt: "1周")
                 labelField("1 月", text: $customMonthQuotaLabel, prompt: "1月")
+                Divider().opacity(0.25)
+                labelField("重置卡", text: $customResetCreditLabel, prompt: "重置卡")
             }
             .padding(14)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 15, style: .continuous))

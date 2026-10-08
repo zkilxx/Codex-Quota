@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import SwiftUI
+import UserNotifications
 
 @MainActor
 final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDelegate {
@@ -22,6 +23,7 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
     private var pendingStatusItemUpdate = false
     private var systemAppearanceObservation: NSKeyValueObservation?
     private var resetCreditCountdownTimer: Timer?
+    private var resetCreditAutomation: ResetCreditAutomationController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let button = statusItem.button {
@@ -54,6 +56,7 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
                 guard let self else { return }
                 self.store.reloadRemoteSyncConfiguration()
                 self.configureResetCreditCountdownTimer()
+                self.resetCreditAutomation?.preferencesDidChange()
                 self.render()
             }
         }
@@ -66,10 +69,58 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
         }
         render()
         configureResetCreditCountdownTimer()
+        let diagnosticsOnly = CommandLine.arguments.contains { ["--render-snapshot", "--screenshot-menu", "--edit-labels", "--custom-labels", "--preview-reset-confirmation"].contains($0) }
+        if !diagnosticsOnly {
+            let notifier = ResetCreditNotificationService()
+            notifier.onOpen = { [weak self] in self?.showPopover(initialPage: .overview) }
+            let automation = ResetCreditAutomationController(store: store, notifier: notifier)
+            notifier.onPermissionGranted = { [weak automation] in automation?.notificationPermissionGranted() }
+            resetCreditAutomation = automation
+            automation.start()
+        }
+        if CommandLine.arguments.contains("--preview-reset-confirmation") {
+            Task {
+                let preview = ResetCreditConfirmationService(previewOnly: true)
+                let card = RateLimitResetCredit(id: "confirmation-preview", resetType: "codexRateLimits", status: "available", grantedAt: Int64(Date.now.timeIntervalSince1970), expiresAt: Int64(Date.now.addingTimeInterval(180).timeIntervalSince1970), title: nil, description: nil)
+                let approved = await preview.confirmUse(of: card)
+                if let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--confirmation-report-path=") }),
+                   let data = try? JSONSerialization.data(withJSONObject: ["approved": approved, "previewOnly": true, "realCreditsConsumed": 0], options: [.prettyPrinted, .sortedKeys]) {
+                    try? data.write(to: URL(fileURLWithPath: String(argument.dropFirst("--confirmation-report-path=".count))), options: .atomic)
+                }
+                NSApplication.shared.terminate(nil)
+            }
+        }
+        if let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--automation-report-path=") }) {
+            let path = String(argument.dropFirst("--automation-report-path=".count))
+            Task { [weak self] in
+                guard let self else { return }
+                for _ in 0..<40 {
+                    if self.store.resetCredits != nil { break }
+                    try? await Task.sleep(for: .seconds(1))
+                }
+                let settings = await UNUserNotificationCenter.current().notificationSettings()
+                let first = self.store.resetCredits?.availableFullResetCredits(at: .now).first?.expirationDate
+                let report: [String: Any] = [
+                    "running": self.resetCreditAutomation != nil,
+                    "reminderEnabled": self.preference("remindExpiringResetCredits"),
+                    "autoUseEnabled": self.preference("autoUseExpiringResetCredits"),
+                    "requiresConfirmation": true,
+                    "notificationAuthorization": settings.authorizationStatus.rawValue,
+                    "firstExpiration": first?.timeIntervalSince1970 ?? 0,
+                    "reminderAt": first?.addingTimeInterval(-600).timeIntervalSince1970 ?? 0,
+                    "confirmationAt": first?.addingTimeInterval(-180).timeIntervalSince1970 ?? 0
+                ]
+                if let data = try? JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]) {
+                    try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+                }
+            }
+        }
 
         if CommandLine.arguments.contains("--render-snapshot") {
             let initialPage: QuotaMenuPage
-            if CommandLine.arguments.contains("--about") {
+            if CommandLine.arguments.contains("--custom-labels") {
+                initialPage = .customLabels
+            } else if CommandLine.arguments.contains("--about") {
                 initialPage = .about
             } else if CommandLine.arguments.contains("--edit-labels") {
                 initialPage = .statusBarDisplay
@@ -348,7 +399,11 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
             return labeledValue(title, "\(window.remainingPercent)%")
         }
         if preference("showResetCreditCountdown", defaultValue: false),
-           let countdown = ResetCreditCountdownFormatter.menuBarText(summary: store.resetCredits, now: .now) {
+           let countdown = ResetCreditCountdownFormatter.menuBarText(
+               summary: store.resetCredits,
+               now: .now,
+               label: displayLabel(key: "customResetCreditLabel", defaultValue: "重置卡")
+           ) {
             parts.append(countdown)
         }
         let appLabel = displayLabel(key: "customAppLabel", defaultValue: "Codex")
@@ -362,7 +417,8 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
         if case .unavailable(let message) = store.remoteSyncState {
             return "多端同步：\(message)"
         }
-        return "Codex 限额与刷新时间 · 数据来源：\(store.dataSourceDescription)"
+        let source = "Codex 限额与刷新时间 · 数据来源：\(store.dataSourceDescription)"
+        return store.resetCreditAutomationMessage.map { "\(source)\n\($0)" } ?? source
     }
 
     private func window(for option: QuotaOption, in snapshot: RateLimitSnapshot) -> RateLimitWindow? {
@@ -385,7 +441,7 @@ final class StatusBarController: NSObject, NSApplicationDelegate, NSPopoverDeleg
 
     private func displayLabel(key: String, defaultValue: String) -> String {
         guard preference("useCustomLabels", defaultValue: false) else { return defaultValue }
-        return UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return UserDefaults.standard.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? defaultValue
     }
 
     private func labeledValue(_ label: String, _ value: String) -> String {
